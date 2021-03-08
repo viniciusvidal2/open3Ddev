@@ -8,13 +8,13 @@ import cv2
 
 from functions import *
 
-folder_path = "C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\gerador\\scan1"
+folder_path = "C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\carrocinha\\scan1"
 ignored_files = ["acumulada", "mesh", "panoramica", "planta_baixa"]
-voxel_size_lr = 0.03
+voxel_size_lr = 0.06
 voxel_size_fr = 0.005
-dobj = 10
 debug = True
 preprocess = False
+dobj = 60 if preprocess else 25
 
 # Detalhes da camera
 k = np.array([[978.34, -0.013, 654.28], [0.054, 958.48, 367.49], [0, 0, 1]])
@@ -36,10 +36,11 @@ if preprocess:
     o3d.io.write_point_cloud(clouds_list[0], acc)
 else:
     acc = o3d.io.read_point_cloud(clouds_list[0])
+    acc = filter_depth(acc, dmax=dobj)
 
-acc_reg = acc.voxel_down_sample(voxel_size=voxel_size_lr)
-acc_reg = filter_depth(acc_reg, dmax=dobj)
-acc_reg = remove_floor(acc_reg, height=1)
+#acc_reg = acc.voxel_down_sample(voxel_size=voxel_size_lr)
+#acc_reg = filter_depth(acc_reg, dmax=dobj)
+#acc_reg = remove_floor(acc_reg, height=1)
 
 transforms_list = []
 odometry = np.identity(4, float)
@@ -59,29 +60,42 @@ for id in range(1, len(clouds_list)):
     else:
         print("Loading ...")
         src = o3d.io.read_point_cloud(clouds_list[id])
-    
 
     # Ver o incremento que resta para encaixar a nuvem
     if not preprocess:
 
-        src_reg = src.voxel_down_sample(voxel_size=voxel_size_lr)
-        src_reg = filter_depth(src_reg, dmax=dobj)
-        src_no_floor = remove_floor(src_reg, height=1)
+        #src_reg = filter_depth(src, dmax=dobj)
+        src = filter_depth(src, dmax=dobj)
+        #src_no_floor = remove_floor(src_reg, height=1)
 
         src.transform(odometry)
-        src_reg.transform(odometry)
-        src_no_floor.transform(odometry)
+        #src_reg.transform(odometry)
+        #src_no_floor.transform(odometry)
 
         print("Registering ...")  
         angle_in_this_iteration = 80
-        intensity_base = 6
-        repeat_base = 5
+        intensity_base = 3
+        repeat_base = 1
         use_features = False
         repetitions_count = 1
-        while angle_in_this_iteration > 45 and repetitions_count < 6:
-            transf, info = pairwise_registration(src_no_floor, acc_reg, voxel_size_lr, 
-                                                 intensity=intensity_base, repeat=repeat_base, 
-                                                 use_features=use_features)
+        voxel_sizes = np.arange(0.6, 0.03, -0.02)
+
+        while angle_in_this_iteration > 35 and repetitions_count < 6:
+            
+            initial = np.identity(4, float)
+            #for vox in voxel_sizes:
+            vox = voxel_size_lr
+            target = acc.voxel_down_sample(vox)
+            source = src.voxel_down_sample(vox)
+
+            if debug:
+                o3d.visualization.draw_geometries([target, source], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+            a=1 
+            transf = pairwise_registration(source=source, target=target, voxel_size=vox, 
+                                           intensity=intensity_base, repeat=repeat_base, 
+                                           use_features=use_features, initial=initial)
+            #initial = transf
+
             angle_in_this_iteration = check_angle(np.identity(4, float), transf)
             print(f"Rotation angle in this iteration: {angle_in_this_iteration:.2f} .")
             intensity_base += 1
@@ -93,20 +107,20 @@ for id in range(1, len(clouds_list)):
     
             # Transformar a nuvem com nova aproximacao
             src.transform(transf)    
-            src_reg.transform(transf)
-            src_no_floor.transform(transf)
+            #src_reg.transform(transf)
+            #src_no_floor.transform(transf)
     
             # Adicionar na acumulada removendo pontos repetidos
             print("Adding by removing repeated points ...")
-            if id % 1 == 0:
-                acc += remove_existing_points(src, acc, 3*voxel_size_fr)
-            acc_reg += remove_existing_points(src_no_floor, acc_reg, 0.5*voxel_size_lr)
-            temp = acc_reg.voxel_down_sample(voxel_size=voxel_size_lr)
-            acc_reg = copy.deepcopy(temp)
+            #if id % 1 == 0:
+            acc += remove_existing_points(src, acc, 5*voxel_size_fr)
+            #acc_reg += remove_existing_points(src_reg, acc_reg, 0.5*voxel_size_lr)
+            #temp = acc_reg.voxel_down_sample(voxel_size=voxel_size_lr)
+            #acc_reg = copy.deepcopy(temp)
 
             if debug:
                 print("Analyzing result ...")
-                o3d.visualization.draw_geometries([acc_reg, src_no_floor], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+                o3d.visualization.draw_geometries([acc], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
             o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada.ply"), acc)
 
@@ -129,8 +143,7 @@ if not preprocess:
     o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada.ply"), accd)
 
     print("Display!")
-    acc_reg.translate(np.array([0, 20, 0]))
-    o3d.visualization.draw_geometries([accd, acc_reg], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172, 2.0475, 1.532], up=[-0.0694, -0.9768, 0.2024])
+    o3d.visualization.draw_geometries([accd], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172, 2.0475, 1.532], up=[-0.0694, -0.9768, 0.2024])
 
     print("Creating SFM file ...")
     create_sfm_file(os.path.join(folder_path, "cameras_opt.sfm"), clouds_list, transforms_list, k, Tcam, only_write=False)

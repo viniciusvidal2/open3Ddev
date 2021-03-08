@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>d1e32f3c-98b8-4eea-9790-2e7e8e491570</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>register_space_cap2.py</StartupFile>
+    <StartupFile>register_object_cap2.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -31,6 +31,9 @@
     <Compile Include="Open3d_apps.py" />
     <Compile Include="open3d_tests.py" />
     <Compile Include="original.py" />
+    <Compile Include="register_object_cap2.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="register_spaces.py" />
     <Compile Include="register_space_cap2.py">
       <SubType>Code</SubType>

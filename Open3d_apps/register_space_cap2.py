@@ -9,17 +9,17 @@ import cv2
 from functions import *
 
 # Ler a pasta com as nuvens e carregar todas num vetor, ja simplificando
-folder_path = "C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\condominio\\scan1"
+folder_path = "C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\quintalimu\\scan1"
 ignored_files = ["acumulada", "mesh", "panoramica", "planta_baixa"]
-voxel_size = 0.05
+voxel_size = 0.03
 debug = True
 
 print("Loading and filtering every point cloud ...")
-point_clouds = load_point_clouds(folder_path, ignored_files, voxel_size, depth_max=50)
+point_clouds = load_point_clouds(folder_path, ignored_files, voxel_size, depth_max=30)
 
 # Somar as nuvens de cada PPV - adicionar em uma lista
 ntilts = 7
-if len(point_clouds) != 68:
+if len(point_clouds) != 70:
     raise Exception("Some point clouds are missing! Check the synchronism.")
 
 print("Registering for each PPV ...")
@@ -31,11 +31,11 @@ for i, cloud in enumerate(point_clouds):
     if i > 0 and (i+1) % ntilts == 0:
         ppv_clouds.append(copy.deepcopy(ppv_cloud))
         ppv_cloud.clear()
-ppv_clouds.append(copy.deepcopy(ppv_cloud))
+#ppv_clouds.append(copy.deepcopy(ppv_cloud))
 
 if debug:
     print("Visualizing raw result ...")
-    o3d.visualization.draw_geometries(ppv_clouds[0:4], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+    o3d.visualization.draw_geometries(ppv_clouds, zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
 # Por lado a lado cada nuvem, aproximando por ICP
 ppv_cloud.clear()
@@ -44,7 +44,7 @@ transform_list = []
 transform_list.append(np.identity(4, float))
 for i, cloud in enumerate(ppv_clouds):
     print(f"Optimizing cloud {i+1:d} out of {len(ppv_clouds):d} PPVs ...")
-    transf, info = pairwise_registration(cloud, acc, voxel_size, intensity=4, repeat=4, use_features=True)
+    transf = pairwise_registration(cloud, acc, voxel_size, intensity=3, repeat=1, use_features=False)
     cloud.transform(transf)
     acc += remove_existing_points(cloud, acc, voxel_size)
     # Salvar transformacao de cada PPV em uma lista

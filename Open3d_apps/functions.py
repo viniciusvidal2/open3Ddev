@@ -21,7 +21,8 @@ def get_file_list(path, ignored_files, extension=None):
                      and os.path.splitext(f)[0] != ignored_files[0]
                      and os.path.splitext(f)[0] != ignored_files[1]
                      and os.path.splitext(f)[0] != ignored_files[2]
-                     and os.path.splitext(f)[0] != ignored_files[3]]
+                     and os.path.splitext(f)[0] != ignored_files[3]
+                     and os.path.splitext(f)[0] != ignored_files[4]]
     file_list = sorted_alphanum(file_list)
     return file_list
 #######################################################################################################
@@ -62,7 +63,7 @@ def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
         pcd_down2 = filter_depth(copy.deepcopy(pcd_down), depth_max)
         #pcd_down2 = raycasting(pcd_down2, 0.5, 22, 88, voxel_size, depth_max)
         if len(pcd_down2.points) > 100:
-            pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5*voxel_size, max_nn=100))
+            pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=10*voxel_size, max_nn=250))
             pcd_down2.orient_normals_towards_camera_location()
             pcd_down2.remove_statistical_outlier(nb_neighbors=50, std_ratio=0.4)
             pcds.append(pcd_down2)
@@ -79,7 +80,7 @@ def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10):
     #pcd_down2 = raycasting(pcd_down2, 0.5, 22, 88, voxel_size, depth_max)
     if len(pcd_down2.points) > 100:
         pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5*voxel_size, max_nn=50))
-        pcd_down2.orient_normals_towards_camera_location()
+        #pcd_down2.orient_normals_towards_camera_location()
     return pcd_down2
 #######################################################################################################
 def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use_features=False, initial=np.identity(4, float)):
@@ -90,22 +91,27 @@ def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use
         radius_feature = 6*voxel_size
         source_fpfh = o3d.pipelines.registration.compute_fpfh_feature(source, o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=200))
         target_fpfh = o3d.pipelines.registration.compute_fpfh_feature(target, o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=200))
-        #result_fast = o3d.pipelines.registration.registration_fast_based_on_feature_matching(source, target, source_fpfh, target_fpfh, 
-        #                                                                                     o3d.pipelines.registration.FastGlobalRegistrationOption(
-        #                                                                                         maximum_correspondence_distance=0.03))
-        result_fast = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(source, target, source_fpfh, target_fpfh, max_correspondence_distance=1.5*voxel_size,
-                                                                                               checkers=[o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold=voxel_size)])
+        result_fast = o3d.pipelines.registration.registration_fast_based_on_feature_matching(source, target, source_fpfh, target_fpfh, 
+                                                                                             o3d.pipelines.registration.FastGlobalRegistrationOption(
+                                                                                                 maximum_correspondence_distance=0.03))
+        #result_fast = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(source, target, source_fpfh, target_fpfh, max_correspondence_distance=1.5*voxel_size,
+        #                                                                                       checkers=[o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold=voxel_size)])
         Tsa = result_fast.transformation
     else:
         Tsa = initial
 
     dist_min_icp = intensity*voxel_size
-    criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-10, relative_rmse=1e-10, max_iteration=100) 
+    criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-11, relative_rmse=1e-11, max_iteration=100) 
+    #o3d.visualization.draw_geometries([source, target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+    
     for i in range(intensity-1):
         icp_fine = o3d.pipelines.registration.registration_colored_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationForColoredICP(), criteria)
         #icp_fine = o3d.pipelines.registration.registration_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationPointToPoint(), criteria)
         Tsa = icp_fine.transformation
         dist_min_icp -= voxel_size
+        #teste = copy.deepcopy(source)
+        #o3d.visualization.draw_geometries([teste.transform(Tsa), target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+    
 
     for i in range(repeat):
         icp_fine = o3d.pipelines.registration.registration_colored_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationForColoredICP(), criteria)
@@ -113,9 +119,8 @@ def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use
         Tsa = icp_fine.transformation
     
     transformation_icp = icp_fine.transformation
-    information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(source, target, dist_min_icp, icp_fine.transformation)
-
-    return transformation_icp, information_icp
+   
+    return Tsa
 #######################################################################################################
 def full_registration(pcds, voxel_size):
     pose_graph = o3d.pipelines.registration.PoseGraph()
@@ -201,7 +206,7 @@ def raycasting(cloud, step, fov_lat, fov_lon, voxel_size, max_depth):
 
     return cloud2
 #######################################################################################################
-def create_sfm_file(name, clouds_list, Ts, k=np.identity(3, float), Tcam=np.identity(4, float), only_write=False):
+def create_sfm_file(name, images_list, Ts, k=np.identity(3, float), Tcam=np.identity(4, float), only_write=False):
     fx = np.asarray(k)[0][0]
     fy = np.asarray(k)[1][1]
     cx = np.asarray(k)[0][2] 
@@ -217,7 +222,7 @@ def create_sfm_file(name, clouds_list, Ts, k=np.identity(3, float), Tcam=np.iden
         else:
             pose = np.matmul(Tcam, np.linalg.inv(T))
 
-        linha  = clouds_list[i] + " "
+        linha  = images_list[i] + " "
         linha += str(np.asarray(pose)[0][0]) + " " + str(np.asarray(pose)[0][1]) + " " + str(np.asarray(pose)[0][2]) + " "
         linha += str(np.asarray(pose)[1][0]) + " " + str(np.asarray(pose)[1][1]) + " " + str(np.asarray(pose)[1][2]) + " "
         linha += str(np.asarray(pose)[2][0]) + " " + str(np.asarray(pose)[2][1]) + " " + str(np.asarray(pose)[2][2]) + " "
