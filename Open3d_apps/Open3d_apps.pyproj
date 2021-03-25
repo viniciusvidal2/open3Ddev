@@ -4,13 +4,17 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>d1e32f3c-98b8-4eea-9790-2e7e8e491570</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>register_object_cap2.py</StartupFile>
+    <StartupFile>register_space_cap2.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>Open3d_apps</Name>
     <RootNamespace>Open3d_apps</RootNamespace>
+    <LaunchProvider>Standard Python launcher</LaunchProvider>
+    <CommandLineArguments>
+    </CommandLineArguments>
+    <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>

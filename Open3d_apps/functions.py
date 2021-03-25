@@ -56,7 +56,7 @@ def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
     pcds = []
     cloud_paths = get_file_list(folder, final_name, extension=".ply")
     for i in range(len(cloud_paths)):
-        print(f"Processing cloud {i+1:d} out of {len(cloud_paths):d} in Total ...")
+        print(f"Lendo nuvem {i+1:d} de {len(cloud_paths):d} no total ...", flush=True)
         pcd = o3d.io.read_point_cloud(cloud_paths[i])
         pcd_down = pcd.voxel_down_sample(voxel_size=voxel_size)
         pcd_down.remove_statistical_outlier(nb_neighbors=20, std_ratio=0.4)
@@ -72,15 +72,18 @@ def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
 
     return pcds
 #######################################################################################################
-def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10):
+def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10, T=np.identity(4, float)):
     pcd = o3d.io.read_point_cloud(name)
-    pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=1)
-    pcd_down = pcd.voxel_down_sample(voxel_size=voxel_size)
+    pcd.transform(T)
+    pcd.remove_statistical_outlier(nb_neighbors=200, std_ratio=0.5)
+    pcd_down = pcd#pcd.voxel_down_sample(voxel_size=voxel_size)
     pcd_down2 = filter_depth(copy.deepcopy(pcd_down), depth_max)
     #pcd_down2 = raycasting(pcd_down2, 0.5, 22, 88, voxel_size, depth_max)
     if len(pcd_down2.points) > 100:
-        pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5*voxel_size, max_nn=50))
-        #pcd_down2.orient_normals_towards_camera_location()
+        pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5*voxel_size, max_nn=100))
+        pcd_down2.orient_normals_towards_camera_location()
+    pcd_down2.transform(np.linalg.inv(T))
+
     return pcd_down2
 #######################################################################################################
 def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use_features=False, initial=np.identity(4, float)):
@@ -101,7 +104,7 @@ def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use
         Tsa = initial
 
     dist_min_icp = intensity*voxel_size
-    criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-11, relative_rmse=1e-11, max_iteration=100) 
+    criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-10, relative_rmse=1e-10, max_iteration=100) 
     #o3d.visualization.draw_geometries([source, target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
     for i in range(intensity-1):
@@ -112,37 +115,35 @@ def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use
         #teste = copy.deepcopy(source)
         #o3d.visualization.draw_geometries([teste.transform(Tsa), target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
-
     for i in range(repeat):
         icp_fine = o3d.pipelines.registration.registration_colored_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationForColoredICP(), criteria)
         #icp_fine = o3d.pipelines.registration.registration_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationPointToPoint(), criteria)
         Tsa = icp_fine.transformation
     
     transformation_icp = icp_fine.transformation
-   
-    return Tsa
+    information_icp    = o3d.pipelines.registration.get_information_matrix_from_point_clouds(source, target, dist_min_icp, icp_fine.transformation)
+    return transformation_icp, information_icp
 #######################################################################################################
-def full_registration(pcds, voxel_size):
+def full_registration(pcds, voxel_size, poses, loop_closure=True, transfs=[], infos=[]):
     pose_graph = o3d.pipelines.registration.PoseGraph()
-    odometry = np.identity(4)
-    pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
+    pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(np.linalg.inv(poses[0])))
     n_pcds = len(pcds)
     for target_id in range(n_pcds):
-        for source_id in range(target_id + 1, n_pcds):
-            #transformation_icp, information_icp = pairwise_registration(pcds[source_id], pcds[target_id], voxel_size)
-            #print("Build o3d.pipelines.registration.PoseGraph")
+        print(f"Graph node for cloud {target_id+1:d} ...", flush=True)
+        for source_id in range(target_id + 1, n_pcds):            
             if source_id == target_id + 1:  # odometry case
+                #transformation_icp, information_icp = pairwise_registration(pcds[source_id], pcds[target_id], voxel_size)
+                pose_graph.nodes.append( o3d.pipelines.registration.PoseGraphNode(poses[source_id]))
+                pose_graph.edges.append( o3d.pipelines.registration.PoseGraphEdge(source_id, target_id, transfs[source_id-1], infos[source_id-1], uncertain=False) )
+            elif source_id == target_id + 2:  # loop closure case
                 transformation_icp, information_icp = pairwise_registration(pcds[source_id], pcds[target_id], voxel_size)
-                print("Build o3d.pipelines.registration.PoseGraph")
-                odometry = np.dot(transformation_icp, odometry)
-                pose_graph.nodes.append( o3d.pipelines.registration.PoseGraphNode(np.linalg.inv(odometry)) )
-                pose_graph.edges.append( o3d.pipelines.registration.PoseGraphEdge(source_id, target_id, transformation_icp, information_icp, uncertain=False))
-            #else:  # loop closure case
-            #    pose_graph.edges.append( o3d.pipelines.registration.PoseGraphEdge(source_id,
-            #                                                 target_id,
-            #                                                 transformation_icp,
-            #                                                 information_icp,
-            #                                                 uncertain=True))
+                pose_graph.edges.append( o3d.pipelines.registration.PoseGraphEdge(source_id, target_id, transformation_icp, information_icp, uncertain=True) )
+    # Add the final with loop closure
+    if loop_closure:
+        transformation_icp, information_icp = pairwise_registration(pcds[n_pcds-1], pcds[0], voxel_size)
+        pose_graph.nodes.append( o3d.pipelines.registration.PoseGraphNode(poses[n_pcds-1]))
+        pose_graph.edges.append( o3d.pipelines.registration.PoseGraphEdge(n_pcds-1, 0, transformation_icp, information_icp, uncertain=False))
+
     return pose_graph
 #######################################################################################################
 def color_point_clouds(folder_path, clouds, k, t):
@@ -222,7 +223,8 @@ def create_sfm_file(name, images_list, Ts, k=np.identity(3, float), Tcam=np.iden
         else:
             pose = np.matmul(Tcam, np.linalg.inv(T))
 
-        linha  = images_list[i] + " "
+        ps = images_list[i].split('\\')
+        linha  = os.path.join(ps[-3], ps[-2], ps[-1]) + " "
         linha += str(np.asarray(pose)[0][0]) + " " + str(np.asarray(pose)[0][1]) + " " + str(np.asarray(pose)[0][2]) + " "
         linha += str(np.asarray(pose)[1][0]) + " " + str(np.asarray(pose)[1][1]) + " " + str(np.asarray(pose)[1][2]) + " "
         linha += str(np.asarray(pose)[2][0]) + " " + str(np.asarray(pose)[2][1]) + " " + str(np.asarray(pose)[2][2]) + " "
@@ -232,6 +234,26 @@ def create_sfm_file(name, images_list, Ts, k=np.identity(3, float), Tcam=np.iden
         sfm.write(linha)
 
     sfm.close()
+#######################################################################################################
+def assemble_sfm_lines(images_list, Ts, k=np.identity(3, float)):
+    fx = np.asarray(k)[0][0]
+    fy = np.asarray(k)[1][1]
+    cx = np.asarray(k)[0][2] 
+    cy = np.asarray(k)[1][2]
+
+    linhas = []
+    for i, pose in enumerate(Ts):
+        ps = images_list[i].split('\\')
+        linha  = os.path.join(ps[-3], ps[-2], ps[-1]) + " "
+        linha += str(np.asarray(pose)[0][0]) + " " + str(np.asarray(pose)[0][1]) + " " + str(np.asarray(pose)[0][2]) + " "
+        linha += str(np.asarray(pose)[1][0]) + " " + str(np.asarray(pose)[1][1]) + " " + str(np.asarray(pose)[1][2]) + " "
+        linha += str(np.asarray(pose)[2][0]) + " " + str(np.asarray(pose)[2][1]) + " " + str(np.asarray(pose)[2][2]) + " "
+        linha += str(np.asarray(pose)[0][3]) + " " + str(np.asarray(pose)[1][3]) + " " + str(np.asarray(pose)[2][3]) + " "
+        linha += str(fx) + " " + str(fy) + " " + str(cx) + " " + str(cy) + "\n"
+        linhas.append(linha)
+
+    return linhas
+
 #######################################################################################################
 def read_sfm_file(name):
     file = open(name, 'r')
@@ -251,7 +273,7 @@ def read_sfm_file(name):
 def remove_floor(cloud, height=10):
     cloud2 = o3d.geometry.PointCloud()
     for i, p in enumerate(cloud.points):
-        if p[1] <= height:
+        if p[1] > height:
             cloud2.points.append(cloud.points[i])
             cloud2.colors.append(cloud.colors[i])
             cloud2.normals.append(cloud.normals[i])
@@ -268,4 +290,34 @@ def check_angle(T1, T2):
     b = abs(np.rad2deg(a))
 
     return b
+#######################################################################################################
+def find_transform_from_GPS(gps_s, gps_t):
+    source = [float(a) for a in gps_s]
+    target = [float(a) for a in gps_t]
+    T = np.identity(4, float)
+    # Diferenca em latitude e longitude entre os pontos
+    # A principio o norte (eixo Z) esta apontado para latitude positiva, eixo X lata longitude positiva
+    dlat = target[0] - source[0]
+    dlon = target[1] - source[1]
+    dalt = target[1] - source[1] if target[2] - source[2] > 10 else 0
+    # Converte para metros com formula consagrada e retorna transformacao
+    dz = -dlat*1.113195e5
+    dx = -dlon*1.113195e5
+    T[0][3] = dx
+    T[2][3] = dz
+
+    return T
+#######################################################################################################
+def enclose_fov(c, pose, hor=70, ver=15):
+    cloud = o3d.geometry.PointCloud()
+    c.transform(pose)
+    for i, p in enumerate(c.points):
+        if abs(math.atan2(p[0], p[2])) <= math.radians(hor/2) and abs(math.atan2(p[1], p[2])) <= math.radians(ver/2):
+            cloud.points.append(p)
+            cloud.colors.append(c.colors[i])
+            if len(c.normals) > 0:
+                cloud.normals.append(c.normals[i])
+
+    cloud.transform(np.linalg.inv(pose))
+    return cloud
 #######################################################################################################
