@@ -27,14 +27,11 @@ def get_file_list(path, ignored_files, extension=None):
     return file_list
 #######################################################################################################
 def filter_depth(cloud, dmax):
-    cloud2 = o3d.geometry.PointCloud()
+    cloud2 = copy.deepcopy(cloud)
     for i, point in enumerate(cloud.points):
         d = math.sqrt(point[0]**2 + point[1]**2 + point[2]**2)
-        if d < dmax:
-            cloud2.points.append(cloud.points[i])
-            cloud2.colors.append(cloud.colors[i])
-            if len(cloud.normals) == len(cloud.points):
-                cloud2.normals.append(cloud.normals[i])
+        if d > dmax:
+            cloud2.points[i] = np.zeros(3)
 
     return cloud2
 #######################################################################################################
@@ -74,14 +71,16 @@ def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
 #######################################################################################################
 def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10, T=np.identity(4, float)):
     pcd = o3d.io.read_point_cloud(name)
-    pcd.transform(T)
-    pcd.remove_statistical_outlier(nb_neighbors=200, std_ratio=0.5)
-    pcd_down = pcd#pcd.voxel_down_sample(voxel_size=voxel_size)
-    pcd_down2 = filter_depth(copy.deepcopy(pcd_down), depth_max)
+    pcd_down2 = pcd.voxel_down_sample(voxel_size=voxel_size)
+    pcd_down2.remove_statistical_outlier(nb_neighbors=200, std_ratio=0.5)
+    pcd_down2.transform(T)
+    #pcd_down2 = filter_depth(copy.deepcopy(pcd_down), depth_max)
     #pcd_down2 = raycasting(pcd_down2, 0.5, 22, 88, voxel_size, depth_max)
-    if len(pcd_down2.points) > 100:
+    if len(pcd_down2.points) > 10:
         pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5*voxel_size, max_nn=100))
         pcd_down2.orient_normals_towards_camera_location()
+    else:
+        return o3d.geometry.PointCloud()
     pcd_down2.transform(np.linalg.inv(T))
 
     return pcd_down2
@@ -96,7 +95,7 @@ def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use
         target_fpfh = o3d.pipelines.registration.compute_fpfh_feature(target, o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=200))
         result_fast = o3d.pipelines.registration.registration_fast_based_on_feature_matching(source, target, source_fpfh, target_fpfh, 
                                                                                              o3d.pipelines.registration.FastGlobalRegistrationOption(
-                                                                                                 maximum_correspondence_distance=0.03))
+                                                                                                 maximum_correspondence_distance=voxel_size))
         #result_fast = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(source, target, source_fpfh, target_fpfh, max_correspondence_distance=1.5*voxel_size,
         #                                                                                       checkers=[o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold=voxel_size)])
         Tsa = result_fast.transformation
@@ -224,7 +223,7 @@ def create_sfm_file(name, images_list, Ts, k=np.identity(3, float), Tcam=np.iden
             pose = np.matmul(Tcam, np.linalg.inv(T))
 
         ps = images_list[i].split('\\')
-        linha  = os.path.join(ps[-3], ps[-2], ps[-1]) + " "
+        linha  = os.path.join(ps[-2], ps[-1]) + " "
         linha += str(np.asarray(pose)[0][0]) + " " + str(np.asarray(pose)[0][1]) + " " + str(np.asarray(pose)[0][2]) + " "
         linha += str(np.asarray(pose)[1][0]) + " " + str(np.asarray(pose)[1][1]) + " " + str(np.asarray(pose)[1][2]) + " "
         linha += str(np.asarray(pose)[2][0]) + " " + str(np.asarray(pose)[2][1]) + " " + str(np.asarray(pose)[2][2]) + " "
@@ -244,7 +243,7 @@ def assemble_sfm_lines(images_list, Ts, k=np.identity(3, float)):
     linhas = []
     for i, pose in enumerate(Ts):
         ps = images_list[i].split('\\')
-        linha  = os.path.join(ps[-3], ps[-2], ps[-1]) + " "
+        linha  = os.path.join(ps[-2], ps[-1]) + " "
         linha += str(np.asarray(pose)[0][0]) + " " + str(np.asarray(pose)[0][1]) + " " + str(np.asarray(pose)[0][2]) + " "
         linha += str(np.asarray(pose)[1][0]) + " " + str(np.asarray(pose)[1][1]) + " " + str(np.asarray(pose)[1][2]) + " "
         linha += str(np.asarray(pose)[2][0]) + " " + str(np.asarray(pose)[2][1]) + " " + str(np.asarray(pose)[2][2]) + " "
@@ -291,20 +290,24 @@ def check_angle(T1, T2):
 
     return b
 #######################################################################################################
-def find_transform_from_GPS(gps_s, gps_t):
-    source = [float(a) for a in gps_s]
-    target = [float(a) for a in gps_t]
+def find_transform_from_GPS(gps_s, gps_t, ambiente_interno=True):    
     T = np.identity(4, float)
-    # Diferenca em latitude e longitude entre os pontos
-    # A principio o norte (eixo Z) esta apontado para latitude positiva, eixo X lata longitude positiva
-    dlat = target[0] - source[0]
-    dlon = target[1] - source[1]
-    dalt = target[1] - source[1] if target[2] - source[2] > 10 else 0
-    # Converte para metros com formula consagrada e retorna transformacao
-    dz = -dlat*1.113195e5
-    dx = -dlon*1.113195e5
-    T[0][3] = dx
-    T[2][3] = dz
+    # Se nao e ambiente interno, utiliza as coordenadas de GPS obtidas
+    if not ambiente_interno:        
+        source = [float(a) for a in gps_s]
+        target = [float(a) for a in gps_t]
+        # Garante que nenhuma coordenada e 0
+        if source[0] != 0 and target[0] != 0:
+            # Diferenca em latitude e longitude entre os pontos
+            # A principio o norte (eixo Z) esta apontado para latitude positiva, eixo X lata longitude positiva
+            dlat = target[0] - source[0]
+            dlon = target[1] - source[1]
+            dalt = target[2] - source[2] if target[2] - source[2] > 15 else 0
+            # Converte para metros com formula consagrada e retorna transformacao
+            dz = dlat*1.113195e5
+            dx = dlon*1.113195e5
+            T[0][3] = -dx
+            T[2][3] = -dz
 
     return T
 #######################################################################################################
