@@ -71,7 +71,10 @@ def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
 #######################################################################################################
 def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10, T=np.identity(4, float)):
     pcd = o3d.io.read_point_cloud(name)
-    pcd_down2 = pcd.voxel_down_sample(voxel_size=voxel_size)
+    if voxel_size != 0:
+        pcd_down2 = pcd.voxel_down_sample(voxel_size=voxel_size)
+    else:
+        pcd_down2 = copy.deepcopy(pcd)
     pcd_down2.remove_statistical_outlier(nb_neighbors=200, std_ratio=0.5)
     pcd_down2.transform(T)
     #pcd_down2 = filter_depth(copy.deepcopy(pcd_down), depth_max)
@@ -242,8 +245,7 @@ def assemble_sfm_lines(images_list, Ts, k=np.identity(3, float)):
 
     linhas = []
     for i, pose in enumerate(Ts):
-        ps = images_list[i].split('\\')
-        linha  = os.path.join(ps[-2], ps[-1]) + " "
+        linha  = images_list[i] + " "
         linha += str(np.asarray(pose)[0][0]) + " " + str(np.asarray(pose)[0][1]) + " " + str(np.asarray(pose)[0][2]) + " "
         linha += str(np.asarray(pose)[1][0]) + " " + str(np.asarray(pose)[1][1]) + " " + str(np.asarray(pose)[1][2]) + " "
         linha += str(np.asarray(pose)[2][0]) + " " + str(np.asarray(pose)[2][1]) + " " + str(np.asarray(pose)[2][2]) + " "
