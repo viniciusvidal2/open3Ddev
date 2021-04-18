@@ -41,12 +41,17 @@ def remove_existing_points(src, tgt, radius):
         return src
 
     s2 = o3d.geometry.PointCloud()
-    dists = src.compute_point_cloud_distance(tgt)
-    for i, d in enumerate(dists):
-        if d > radius:
-            s2.points.append(src.points[i])
-            s2.colors.append(src.colors[i])
-            s2.normals.append(src.normals[i])
+    dists = np.squeeze(src.compute_point_cloud_distance(tgt))
+    indices = np.squeeze(np.argwhere(np.asarray(dists, dtype=float) > radius))
+    s2.points = o3d.utility.Vector3dVector(np.asarray(src.points)[indices])
+    s2.colors = o3d.utility.Vector3dVector(np.asarray(src.colors)[indices])
+    if len(src.normals) > 1:
+        s2.normals = o3d.utility.Vector3dVector(np.asarray(src.normals)[indices])
+    #for i, d in enumerate(dists):
+    #    if d > radius:
+    #        s2.points.append(src.points[i])
+    #        s2.colors.append(src.colors[i])
+    #        s2.normals.append(src.normals[i])
     return s2
 #######################################################################################################
 def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
@@ -325,4 +330,61 @@ def enclose_fov(c, pose, hor=70, ver=15):
 
     cloud.transform(np.linalg.inv(pose))
     return cloud
+#######################################################################################################
+def blueprint(cl, poses):
+    ### Separando a nuvem em clusters perpendiculares ao eixo y - y negativo para cima
+    ###
+    cloud = copy.deepcopy(cl)
+    # Filtrando a altura que vai entrar na roda (acima do robo)
+    altura_considerada = 0.5
+    ys = np.asarray(cloud.points)[:, 1]
+    indices = np.squeeze(np.argwhere(ys >= altura_considerada))
+    cloud.points = o3d.utility.Vector3dVector(np.asarray(cloud.points)[indices])
+    cloud.colors = o3d.utility.Vector3dVector(np.asarray(cloud.colors)[indices])
+    if len(cloud.normals) > 1:
+        cloud.normals = o3d.utility.Vector3dVector(np.asarray(cloud.normals)[indices])
+    # Filtrando pontos longe de todos os centros passados
+    bp_radius_limit = 30
+    centers_cloud = o3d.geometry.PointCloud()
+    for i, p in enumerate(poses):
+        centers_cloud.points.append(np.squeeze(np.linalg.inv(p)[0:3, 3]))
+    dists = cloud.compute_point_cloud_distance(centers_cloud)
+    indices = np.squeeze(np.argwhere(np.asarray(dists) < bp_radius_limit))
+    cloud.points = o3d.utility.Vector3dVector(np.asarray(cloud.points)[indices])
+    cloud.colors = o3d.utility.Vector3dVector(np.asarray(cloud.colors)[indices])
+    if len(cloud.normals) > 1:
+        cloud.normals = o3d.utility.Vector3dVector(np.asarray(cloud.normals)[indices])
+    ### Definir aqui quantos pixels por metro quadrado de planta baixa
+    # Dimensoes maximas na nuvem de pontos para saber a quantidade relativa de pixels necessarios
+    # w esta para X e h esta para Z
+    pixels_side_base = 1000
+    points = np.asarray(cloud.points)
+    xlims = [np.min(points[:, 0]), np.max(points[:, 0])]
+    zlims = [np.min(points[:, 2]), np.max(points[:, 2])]
+    xa = xlims[1] - xlims[0] # Comprimento para area em X
+    za = zlims[1] - zlims[0] # Comprimento para area em Z
+    w = pixels_side_base
+    h = int(w * za/xa)
+    pixels_meter = w/xa
+    bp_points = 100*np.ones((w, h, 3), dtype=float) # Guardar os pontos mais altos nos bins    
+    blueprint_im = np.zeros((h, w, 3), dtype=float) # Criando imagem da planta baixa e colorindo com a matriz de pontos
+    colors = np.asarray(cloud.colors)
+    for i, p in enumerate(cloud.points):
+        u = int(abs(p[0] - xlims[0])/xa * w)
+        v = h - int(abs(p[2] - zlims[0])/za * h)
+        if 0 <= u < w and 0 <= v < h:
+            if(p[1] < bp_points[u, v, 1]):
+                bp_points[u, v, :] = p
+                blueprint_im[v, u, :] = 255*colors[i]
+    # Desenhar pontos de aquisicao:
+    for i, p in enumerate(poses):
+        x, z = np.linalg.inv(p)[0, 3], np.linalg.inv(p)[2, 3]
+        u = int(abs(x - xlims[0])/xa * w)
+        v = h - int(abs(z - zlims[0])/za * h)
+        if 0 <= u < w and 0 <= v < h:
+            cv2.circle(blueprint_im, (u,v), 12, (255, 100,   0), thickness=30)
+            cv2.circle(blueprint_im, (u,v), 20, (255, 255, 255), thickness=4 )
+            cv2.putText(blueprint_im, f'{i+1:02d}', (u-12,v+7), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=2)
+
+    return np.uint8(blueprint_im)
 #######################################################################################################

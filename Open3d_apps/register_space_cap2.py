@@ -12,15 +12,15 @@ from functions import *
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser()
 parser.add_argument('-root_path' , type=str  , required=True , default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente")
-parser.add_argument('-resolution', type=float, required=False, default=0.05)
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
-args = parser.parse_args()
+parser.add_argument('-resolution', type=float, required=False, default=0.08)
+args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
+#args = parser.parse_args()
 root_path     = args.root_path  
 voxel_size    = args.resolution
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
 debug = False
 
-print("CAP Space Point Cloud Estimator 1.0.1", flush=True)
+print("CAP Space Point Cloud Estimator 1.1.0", flush=True)
 
 # Parametros de calibracao da camera
 k = np.array([[978.34, -0.013, 654.28], [0.054, 958.48, 367.49], [0, 0, 1]])
@@ -34,6 +34,7 @@ for fo, folder_path in enumerate(folders_list):
     print(f"Lendo arquivo SFM do SCAN {fo+1:d} ...", flush=True)
     raw_poses = read_sfm_file(os.path.join(folder_path, "cameras.sfm"))[:80]
     images_list = get_file_list(folder_path, ignored_files, extension=".png")
+    images_list = [im for im in images_list if im.split('\\')[-1][0:6] == 'imagem']
     if len(raw_poses) != len(images_list):
         raise Exception("Ha um problema com as imagens no diretorio deste SCAN, por favor checar.")
 
@@ -99,8 +100,8 @@ for fo, folder_path in enumerate(folders_list):
 #####################################
 for cont in range(4):
     print("------------------------------------------------------", flush=True)
-    
-# Se ha mais de um scan, processar e fundir todos
+
+## Se ha mais de um scan, processar e fundir todos
 if len(folders_list) > 1:
     print("Iniciando processo de fusao de todos os SCANS ...", flush=True)
     # Varrer todos avaliando coordenadas de GPS, definir referencia ou se e ambiente interno
@@ -133,6 +134,7 @@ if len(folders_list) > 1:
     images_list_reduced = [os.path.join( il.split('\\')[-2], il.split('\\')[-1]) for il in images_list]
     final_sfm_lines_texture = assemble_sfm_lines(images_list_reduced, temp_poses, k)
     final_sfm_lines_360     = assemble_sfm_lines(["images/"+folders_list[gps_ref_ind].split("\\")[-1]+"_panoramica.png"], [np.identity(4, float)], k)
+    poses_bp = [np.identity(4, float)]
 
     # Para cada nuvem que nao seja a referencia, transformar por coordenadas de GPS, features e ICP
     Tlast = np.identity(4, float)
@@ -148,24 +150,21 @@ if len(folders_list) > 1:
         images_list_reduced = [os.path.join( il.split('\\')[-2], il.split('\\')[-1]) for il in images_list]
 
         # Encontrar transformada inicial por GPS
-        #o3d.visualization.draw_geometries([final_cloud, temp_cloud])
         Tgps = find_transform_from_GPS(gps_temp, gps_ref, ambiente_interno)
         Tcoarse = Tlast if (Tgps == np.identity(4, float)).all() else Tgps
         temp_cloud.transform(Tcoarse)
-        #o3d.visualization.draw_geometries([final_cloud, temp_cloud])
         # Aproximacao por ICP aqui agora
         print("Otimizando ...", flush=True)
         target = final_cloud.voxel_down_sample(5*voxel_size)
         source = temp_cloud.voxel_down_sample(5*voxel_size)
         if not ambiente_interno:
-            transf, _ = pairwise_registration(source, target, 0.01, intensity=50, repeat=1, use_features=False)
+            transf, _ = pairwise_registration(source, target, 0.01, intensity=60, repeat=4, use_features=False)
         else:
             transf, _ = pairwise_registration(source, target, voxel_size, intensity=20, repeat=1, use_features=False)
         temp_cloud.transform(transf)
-        #o3d.visualization.draw_geometries([final_cloud, temp_cloud])
         # Somar a nuvem final
         print("Adicionando resultado na nuvem de pontos global ...", flush=True)
-        final_cloud += remove_existing_points(temp_cloud, final_cloud, voxel_size)
+        final_cloud += remove_existing_points(temp_cloud, final_cloud, 3*voxel_size)
         
         # Atualizar as poses para o sfm final
         Ttemp = np.linalg.inv(np.dot(transf, Tcoarse))
@@ -174,11 +173,18 @@ if len(folders_list) > 1:
         # Guardar as linhas para escrever tudo ao final
         final_sfm_lines_texture += assemble_sfm_lines(images_list_reduced, temp_poses, k)
         final_sfm_lines_360     += assemble_sfm_lines(["images/"+folders_list[i].split("\\")[-1]+"_panoramica.png"], [Ttemp], k)
+        # Salvar a pose para adicionar na planta baixa
+        poses_bp.append(Ttemp)
         # Salvar ultima transformacao para ajudar se a proxima nao tiver coordenadas
         Tlast = np.dot(Tcoarse, transf)
 
+    # Criar planta baixa do cenario global
+    print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
+    bp = blueprint(final_cloud, poses_bp)
+    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
+
     # Salvar arquivos finais de SFM e nuvem total na raiz
-    print("Salvando arquivos finais no diretorio raiz ...", flush=True)
+    print("Salvando arquivo de poses das cameras ...", flush=True)
     o3d.io.write_point_cloud(os.path.join(root_path, "acumulada_opt.ply"), final_cloud)
     final_sfm_file_texture = open(os.path.join(root_path, "cameras_opt.sfm"), 'w')
     final_sfm_file_texture.write(str(len(final_sfm_lines_texture))+"\n\n")
@@ -191,10 +197,24 @@ if len(folders_list) > 1:
         final_sfm_file_360.write(l)
     final_sfm_file_360.close()
 
-else: # Se e so um, copiar a nuvem acumulada e sfm para a pasta mae
+else: # Se e so um, copiar a nuvem acumulada e sfm para a pasta mae - escrever sfm das panoramicas so para um scan
     print("Salvando arquivos finais no diretorio raiz ...", flush=True)
     files = [os.path.join(folders_list[0], 'acumulada_opt.ply'), os.path.join(folders_list[0], 'cameras_opt.sfm')]
     for f in files:
         shutil.copy(f, root_path)
+    # Criar planta baixa do cenario global
+    print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
+    final_cloud = o3d.io.read_point_cloud(os.path.join(folders_list[0], 'acumulada_opt.ply'))
+    bp = blueprint(final_cloud, [np.identity(4, float)])
+    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
+
+    # Salvar arquivos finais de SFM e nuvem total na raiz
+    print("Salvando arquivo de poses das cameras ...", flush=True)
+    final_sfm_lines_360 = assemble_sfm_lines(["images/"+folders_list[0].split("\\")[-1]+"_panoramica.png"], [np.identity(4, float)], k)
+    final_sfm_file_360 = open(os.path.join(root_path, "cameras.sfm"), 'w')
+    final_sfm_file_360.write(str(len(final_sfm_lines_360))+"\n\n")
+    for l in final_sfm_lines_360:
+        final_sfm_file_360.write(l)
+    final_sfm_file_360.close()
 
 print("Nuvem de pontos e poses cameras processadas com sucesso !!", flush=True)
