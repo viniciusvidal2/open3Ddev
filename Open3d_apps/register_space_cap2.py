@@ -9,18 +9,26 @@ import argparse
 
 from functions import *
 
+# Versao atual do executavel
+version = '1.2.0'
 # Ler os parametros passados em linhas de comando
-parser = argparse.ArgumentParser()
-parser.add_argument('-root_path' , type=str  , required=True , default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente")
-parser.add_argument('-resolution', type=float, required=False, default=0.08)
-args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
-#args = parser.parse_args()
+parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
+                                 '. It processes the final space point cloud and blueprint, from the data acquired '
+                                 'by the CAP scanner.', epilog='Fill the parameters accordingly.')
+parser.add_argument('-root_path' , type=str  , required=True , 
+                    default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
+                    help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
+parser.add_argument('-resolution', type=float, required=False, 
+                    default=0.01,
+                    help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\varanda'])
+args = parser.parse_args()
 root_path     = args.root_path  
 voxel_size    = args.resolution
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
 debug = False
 
-print("CAP Space Point Cloud Estimator 1.1.0", flush=True)
+print("CAP Space Point Cloud Estimator - v"+version, flush=True)
 
 # Parametros de calibracao da camera
 k = np.array([[978.34, -0.013, 654.28], [0.054, 958.48, 367.49], [0, 0, 1]])

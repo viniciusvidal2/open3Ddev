@@ -9,13 +9,23 @@ import argparse
 
 from functions import *
 
+# Versao atual do executavel
+version = '1.1.0'
 # Parametros recebidos pela linha de comando
-parser = argparse.ArgumentParser()
-parser.add_argument('-root_path'    , type=str  , required=True,  default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\demonstracao_objeto")
-parser.add_argument('-dobj'         , type=float, required=False, default=10)
-parser.add_argument('-fov_hor'      , type=float, required=False, default=30)
-parser.add_argument('-fov_ver'      , type=float, required=False, default=30)
-parser.add_argument('-intensity_icp', type=int  , required=False, default=50)
+parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
+                                 '. It processes the final object point cloud, from the data acquired '
+                                 'by the CAP scanner.', epilog='Fill the parameters accordingly.')
+parser.add_argument('-root_path'    , type=str  , required=True, default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\demonstracao_objeto",
+                    help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP.')
+parser.add_argument('-dobj'         , type=float, required=False, default=10,
+                    help='Maximum distance from the scanner that the object was acquired. Points with further distances will be removed')
+parser.add_argument('-fov_hor'      , type=float, required=False, default=30,
+                    help='Horizontal Field of View accepted for every acquisition. Points out of this limit will be removed.')
+parser.add_argument('-fov_ver'      , type=float, required=False, default=30,
+                    help='Vertical Field of View accepted for every acquisition. Points out of this limit will be removed.')
+parser.add_argument('-intensity_icp', type=int  , required=False, default=50,
+                    help='The number of repetitions for the ICP optimization operation. Increasing this parameter value generally improves point cloud optimization,'
+                    ' demanding more processing time.')
 #args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\carro2scans'])
 args = parser.parse_args()
 root_path     = args.root_path
@@ -24,7 +34,7 @@ fov_hor       = args.fov_hor
 fov_ver       = args.fov_ver
 intensity_icp = args.intensity_icp
 
-print("CAP Object Point Cloud Estimator 1.0.1", flush=True)
+print("CAP Object Point Cloud Estimator - v"+version, flush=True)
 
 # Parametros gerais
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
