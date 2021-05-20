@@ -376,15 +376,17 @@ def blueprint(cl, poses):
             if(p[1] < bp_points[u, v, 1]):
                 bp_points[u, v, :] = p
                 blueprint_im[v, u, :] = 255*colors[i]
-    # Desenhar pontos de aquisicao:
+    # Desenhar pontos de aquisicao e salvar local em vetor:
+    centers_coord = []
     for i, p in enumerate(poses):
         x, z = np.linalg.inv(p)[0, 3], np.linalg.inv(p)[2, 3]
         u = int(abs(x - xlims[0])/xa * w)
         v = h - int(abs(z - zlims[0])/za * h)
         if 0 <= u < w and 0 <= v < h:
+            centers_coord.append((u, v))
             cv2.circle(blueprint_im, (u,v), 12, (255, 100,   0), thickness=30)
             cv2.circle(blueprint_im, (u,v), 20, (255, 255, 255), thickness=4 )
             cv2.putText(blueprint_im, f'{i+1:02d}', (u-12,v+7), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=2)
 
-    return np.uint8(blueprint_im)
+    return np.uint8(blueprint_im), centers_coord
 #######################################################################################################

@@ -10,7 +10,7 @@ import argparse
 from functions import *
 
 # Versao atual do executavel
-version = '1.2.0'
+version = '1.2.1'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
@@ -19,9 +19,9 @@ parser.add_argument('-root_path' , type=str  , required=True ,
                     default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
 parser.add_argument('-resolution', type=float, required=False, 
-                    default=0.01,
+                    default=0.03,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\varanda'])
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
 args = parser.parse_args()
 root_path     = args.root_path  
 voxel_size    = args.resolution
@@ -188,8 +188,17 @@ if len(folders_list) > 1:
 
     # Criar planta baixa do cenario global
     print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
-    bp = blueprint(final_cloud, poses_bp)
+    bp, cc = blueprint(final_cloud, poses_bp)
     cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
+    scale = (300/bp.shape[1], 200/bp.shape[0])
+    bp_res = cv2.resize(bp, (300, 200), cv2.INTER_AREA)
+    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada_site.jpg'), bp_res)
+    # Salvar coordenadas de aquisicao da planta baixa
+    bp_file = open(os.path.join(root_path, "coord_bp.txt"), 'w')
+    bp_file.write(str(len(cc))+"\n")
+    for c in cc:
+        bp_file.write(str(int(c[0]*scale[0]))+" "+str(int(c[1]*scale[1]))+"\n")
+    bp_file.close()
 
     # Salvar arquivos finais de SFM e nuvem total na raiz
     print("Salvando arquivo de poses das cameras ...", flush=True)
@@ -213,8 +222,17 @@ else: # Se e so um, copiar a nuvem acumulada e sfm para a pasta mae - escrever s
     # Criar planta baixa do cenario global
     print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
     final_cloud = o3d.io.read_point_cloud(os.path.join(folders_list[0], 'acumulada_opt.ply'))
-    bp = blueprint(final_cloud, [np.identity(4, float)])
+    bp, cc = blueprint(final_cloud, [np.identity(4, float)])
     cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
+    scale = (300/bp.shape[1], 200/bp.shape[0])
+    bp_res = cv2.resize(bp, (300, 200), cv2.INTER_AREA)
+    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada_site.jpg'), bp_res)
+    # Salvar coordenadas de aquisicao da planta baixa
+    bp_file = open(os.path.join(root_path, "coord_bp.txt"), 'w')
+    bp_file.write(str(len(cc))+"\n")
+    for c in cc:
+        bp_file.write(str(int(c[0]*scale[0]))+" "+str(int(c[1]*scale[1]))+"\n")
+    bp_file.close()
 
     # Salvar arquivos finais de SFM e nuvem total na raiz
     print("Salvando arquivo de poses das cameras ...", flush=True)
