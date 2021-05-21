@@ -20,10 +20,10 @@ parser.add_argument('-root_path' , type=str  , required=True ,
                     default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
 parser.add_argument('-resolution', type=float, required=False, 
-                    default=0.08,
+                    default=0.03,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
-args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
-#args = parser.parse_args()
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
+args = parser.parse_args()
 root_path     = args.root_path  
 voxel_size    = args.resolution
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
