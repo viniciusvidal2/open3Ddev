@@ -5,6 +5,7 @@ import re
 import math 
 import copy
 import cv2
+import json
 
 #######################################################################################################
 def sorted_alphanum(file_list_ordered):
@@ -331,7 +332,9 @@ def enclose_fov(c, pose, hor=70, ver=15):
     cloud.transform(np.linalg.inv(pose))
     return cloud
 #######################################################################################################
-def blueprint(cl, poses):
+def blueprint(cl, poses, fl, scale):
+    # Nome dos scans para indicar em qual lugar tiramos aquela pose no json
+    folders_list = [fo.split('\\')[-1] for fo in fl]
     ### Separando a nuvem em clusters perpendiculares ao eixo y - y negativo para cima
     ###
     cloud = copy.deepcopy(cl)
@@ -377,16 +380,16 @@ def blueprint(cl, poses):
                 bp_points[u, v, :] = p
                 blueprint_im[v, u, :] = 255*colors[i]
     # Desenhar pontos de aquisicao e salvar local em vetor:
-    centers_coord = []
+    json_out = {}
     for i, p in enumerate(poses):
         x, z = np.linalg.inv(p)[0, 3], np.linalg.inv(p)[2, 3]
         u = int(abs(x - xlims[0])/xa * w)
         v = h - int(abs(z - zlims[0])/za * h)
         if 0 <= u < w and 0 <= v < h:
-            centers_coord.append((u, v))
+            json_out[folders_list[i]] = {'x':int(scale[0]/w*u), 'y':int(scale[1]/h*v)}
             cv2.circle(blueprint_im, (u,v), 12, (255, 100,   0), thickness=30)
             cv2.circle(blueprint_im, (u,v), 20, (255, 255, 255), thickness=4 )
             cv2.putText(blueprint_im, f'{i+1:02d}', (u-12,v+7), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=2)
 
-    return np.uint8(blueprint_im), centers_coord
+    return np.uint8(blueprint_im), json_out
 #######################################################################################################

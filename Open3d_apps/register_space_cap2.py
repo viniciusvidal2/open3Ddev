@@ -6,11 +6,12 @@ import math
 import copy
 import cv2
 import argparse
+import json
 
 from functions import *
 
 # Versao atual do executavel
-version = '1.2.1'
+version = '1.2.2'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
@@ -19,10 +20,10 @@ parser.add_argument('-root_path' , type=str  , required=True ,
                     default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
 parser.add_argument('-resolution', type=float, required=False, 
-                    default=0.03,
+                    default=0.08,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
-args = parser.parse_args()
+args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\estacionamento'])
+#args = parser.parse_args()
 root_path     = args.root_path  
 voxel_size    = args.resolution
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
@@ -108,7 +109,8 @@ for fo, folder_path in enumerate(folders_list):
 #####################################
 for cont in range(4):
     print("------------------------------------------------------", flush=True)
-
+# Iniciando pose da aquisicao para planta baixa
+poses_bp = [np.identity(4, float)]
 ## Se ha mais de um scan, processar e fundir todos
 if len(folders_list) > 1:
     print("Iniciando processo de fusao de todos os SCANS ...", flush=True)
@@ -142,7 +144,6 @@ if len(folders_list) > 1:
     images_list_reduced = [os.path.join( il.split('\\')[-2], il.split('\\')[-1]) for il in images_list]
     final_sfm_lines_texture = assemble_sfm_lines(images_list_reduced, temp_poses, k)
     final_sfm_lines_360     = assemble_sfm_lines(["images/"+folders_list[gps_ref_ind].split("\\")[-1]+"_panoramica.png"], [np.identity(4, float)], k)
-    poses_bp = [np.identity(4, float)]
 
     # Para cada nuvem que nao seja a referencia, transformar por coordenadas de GPS, features e ICP
     Tlast = np.identity(4, float)
@@ -186,20 +187,6 @@ if len(folders_list) > 1:
         # Salvar ultima transformacao para ajudar se a proxima nao tiver coordenadas
         Tlast = np.dot(Tcoarse, transf)
 
-    # Criar planta baixa do cenario global
-    print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
-    bp, cc = blueprint(final_cloud, poses_bp)
-    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
-    scale = (300/bp.shape[1], 200/bp.shape[0])
-    bp_res = cv2.resize(bp, (300, 200), cv2.INTER_AREA)
-    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada_site.jpg'), bp_res)
-    # Salvar coordenadas de aquisicao da planta baixa
-    bp_file = open(os.path.join(root_path, "coord_bp.txt"), 'w')
-    bp_file.write(str(len(cc))+"\n")
-    for c in cc:
-        bp_file.write(str(int(c[0]*scale[0]))+" "+str(int(c[1]*scale[1]))+"\n")
-    bp_file.close()
-
     # Salvar arquivos finais de SFM e nuvem total na raiz
     print("Salvando arquivo de poses das cameras ...", flush=True)
     o3d.io.write_point_cloud(os.path.join(root_path, "acumulada_opt.ply"), final_cloud)
@@ -219,28 +206,18 @@ else: # Se e so um, copiar a nuvem acumulada e sfm para a pasta mae - escrever s
     files = [os.path.join(folders_list[0], 'acumulada_opt.ply'), os.path.join(folders_list[0], 'cameras_opt.sfm')]
     for f in files:
         shutil.copy(f, root_path)
-    # Criar planta baixa do cenario global
-    print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
     final_cloud = o3d.io.read_point_cloud(os.path.join(folders_list[0], 'acumulada_opt.ply'))
-    bp, cc = blueprint(final_cloud, [np.identity(4, float)])
-    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
-    scale = (300/bp.shape[1], 200/bp.shape[0])
-    bp_res = cv2.resize(bp, (300, 200), cv2.INTER_AREA)
-    cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada_site.jpg'), bp_res)
-    # Salvar coordenadas de aquisicao da planta baixa
-    bp_file = open(os.path.join(root_path, "coord_bp.txt"), 'w')
-    bp_file.write(str(len(cc))+"\n")
-    for c in cc:
-        bp_file.write(str(int(c[0]*scale[0]))+" "+str(int(c[1]*scale[1]))+"\n")
-    bp_file.close()
 
-    # Salvar arquivos finais de SFM e nuvem total na raiz
-    print("Salvando arquivo de poses das cameras ...", flush=True)
-    final_sfm_lines_360 = assemble_sfm_lines(["images/"+folders_list[0].split("\\")[-1]+"_panoramica.png"], [np.identity(4, float)], k)
-    final_sfm_file_360 = open(os.path.join(root_path, "cameras.sfm"), 'w')
-    final_sfm_file_360.write(str(len(final_sfm_lines_360))+"\n\n")
-    for l in final_sfm_lines_360:
-        final_sfm_file_360.write(l)
-    final_sfm_file_360.close()
+# Criar planta baixa do cenario global
+print("Criando mapa em planta baixa do ambiente e salvando ...", flush=True)
+scale = (300, 200)
+bp, pts_json = blueprint(final_cloud, poses_bp, folders_list, scale)
+cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada.png'), bp)
+bp_res = cv2.resize(bp, (300, 200), cv2.INTER_AREA)
+cv2.imwrite(os.path.join(root_path, 'planta_baixa_numerada_site.jpg'), bp_res)
+# Salvar coordenadas de aquisicao da planta baixa
+with open(os.path.join(root_path, 'coord_bp.json'), 'w') as outfile:
+    json.dump(pts_json, outfile)
+    outfile.close()
 
 print("Nuvem de pontos e poses cameras processadas com sucesso !!", flush=True)
