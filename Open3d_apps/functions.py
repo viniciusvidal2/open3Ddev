@@ -381,15 +381,17 @@ def blueprint(cl, poses, fl, scale):
                 blueprint_im[v, u, :] = 255*colors[i]
     # Desenhar pontos de aquisicao e salvar local em vetor:
     json_out = {}
+    json_out['scans'] = []
     for i, p in enumerate(poses):
         x, z = np.linalg.inv(p)[0, 3], np.linalg.inv(p)[2, 3]
         u = int(abs(x - xlims[0])/xa * w)
         v = h - int(abs(z - zlims[0])/za * h)
         if 0 <= u < w and 0 <= v < h:
-            json_out[folders_list[i]] = {'x':int(scale[0]/w*u), 'y':int(scale[1]/h*v)}
+            json_out['scans'].append({'nome':folders_list[i], 'x':int(scale[0]/w*u), 'y':int(scale[1]/h*v)})
+            indice_scan = int(folders_list[i][4:])
             cv2.circle(blueprint_im, (u,v), 12, (255, 100,   0), thickness=30)
             cv2.circle(blueprint_im, (u,v), 20, (255, 255, 255), thickness=4 )
-            cv2.putText(blueprint_im, f'{i+1:02d}', (u-12,v+7), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=2)
+            cv2.putText(blueprint_im, f'{indice_scan:02d}', (u-12,v+7), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=2)
 
     return np.uint8(blueprint_im), json_out
 #######################################################################################################
