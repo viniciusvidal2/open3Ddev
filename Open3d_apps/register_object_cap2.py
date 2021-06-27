@@ -10,7 +10,7 @@ import argparse
 from functions import *
 
 # Versao atual do executavel
-version = '1.1.0'
+version = '1.2.4'
 # Parametros recebidos pela linha de comando
 parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
                                  '. It processes the final object point cloud, from the data acquired '
@@ -26,7 +26,7 @@ parser.add_argument('-fov_ver'      , type=float, required=False, default=30,
 parser.add_argument('-intensity_icp', type=int  , required=False, default=50,
                     help='The number of repetitions for the ICP optimization operation. Increasing this parameter value generally improves point cloud optimization,'
                     ' demanding more processing time.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\carro2scans'])
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\objetos\\amostra_envio2'])
 args = parser.parse_args()
 root_path     = args.root_path
 dobj          = args.dobj
@@ -47,6 +47,7 @@ Tcam = np.array([[1, 0, 0, -0.011], [0, 1, 0, 0.029], [0, 0, 1, 0.027], [0, 0, 0
 
 # Ler todas as pastas de scan no vetor de pastas, processar para cada pasta
 folders_list = [os.path.join(root_path, f) for f in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, f))]
+folders_list     = [fo for fo in folders_list if fo.split('\\')[-1][0:4] == 'scan']
 
 for fo, folder_path in enumerate(folders_list):
     print(f"Processando SCAN {fo+1:d} de {len(folders_list):d} ...", flush=True)
@@ -188,11 +189,5 @@ else: # Se e so um, copiar a nuvem acumulada e sfm para a pasta mae
     files = [os.path.join(folders_list[0], 'acumulada_opt.ply'), os.path.join(folders_list[0], 'cameras_opt.sfm')]
     for f in files:
         shutil.copy(f, root_path)
-
-## Apagar nuvens otimizadas individuais e sfm para cada scan
-#for i in range(len(folders_list)):
-#    files = [os.path.join(folders_list[i], 'acumulada_opt.ply'), os.path.join(folders_list[i], 'cameras_opt.sfm')]
-#    for f in files:
-#        os.remove(f)
 
 print("Nuvem de pontos de cameras processadas com sucesso !!", flush=True)

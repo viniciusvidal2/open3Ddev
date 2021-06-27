@@ -11,7 +11,7 @@ import json
 from functions import *
 
 # Versao atual do executavel
-version = '1.2.3'
+version = '1.2.4'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
