@@ -10,36 +10,40 @@ import argparse
 from functions import *
 
 # Versao atual do executavel
-version = '1.2.4'
+version = '1.3.0'
 # Parametros recebidos pela linha de comando
 parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
                                  '. It processes the final object point cloud, from the data acquired '
                                  'by the CAP scanner.', epilog='Fill the parameters accordingly.')
 parser.add_argument('-root_path'    , type=str  , required=True, default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\demonstracao_objeto",
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP.')
-parser.add_argument('-dobj'         , type=float, required=False, default=10,
+parser.add_argument('-dobj'         , type=float, required=False, default=5,
                     help='Maximum distance from the scanner that the object was acquired. Points with further distances will be removed')
 parser.add_argument('-fov_hor'      , type=float, required=False, default=30,
                     help='Horizontal Field of View accepted for every acquisition. Points out of this limit will be removed.')
 parser.add_argument('-fov_ver'      , type=float, required=False, default=30,
                     help='Vertical Field of View accepted for every acquisition. Points out of this limit will be removed.')
-parser.add_argument('-intensity_icp', type=int  , required=False, default=50,
+parser.add_argument('-intensity_icp', type=int  , required=False, default=5,
                     help='The number of repetitions for the ICP optimization operation. Increasing this parameter value generally improves point cloud optimization,'
                     ' demanding more processing time.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\objetos\\amostra_envio2'])
+parser.add_argument('-manual_registration', type=bool, required=False, 
+                    default=True,
+                    help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\objetos\\santosdumont_transformador'])
 args = parser.parse_args()
 root_path     = args.root_path
 dobj          = args.dobj
 fov_hor       = args.fov_hor
 fov_ver       = args.fov_ver
 intensity_icp = args.intensity_icp
+manual_registration = args.manual_registration
 
 print("CAP Object Point Cloud Estimator - v"+version, flush=True)
 
 # Parametros gerais
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
-voxel_size_lr = 0.05
-voxel_size_fr = 0.005
+voxel_size_lr = 0.06
+voxel_size_fr = 0.01
 
 # Detalhes da camera
 k = np.array([[978.34, -0.013, 654.28], [0.054, 958.48, 367.49], [0, 0, 1]])
@@ -47,7 +51,7 @@ Tcam = np.array([[1, 0, 0, -0.011], [0, 1, 0, 0.029], [0, 0, 1, 0.027], [0, 0, 0
 
 # Ler todas as pastas de scan no vetor de pastas, processar para cada pasta
 folders_list = [os.path.join(root_path, f) for f in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, f))]
-folders_list     = [fo for fo in folders_list if fo.split('\\')[-1][0:4] == 'scan']
+folders_list = [fo for fo in folders_list if fo.split('\\')[-1][0:4] == 'scan']
 
 for fo, folder_path in enumerate(folders_list):
     print(f"Processando SCAN {fo+1:d} de {len(folders_list):d} ...", flush=True)
@@ -66,14 +70,8 @@ for fo, folder_path in enumerate(folders_list):
     # Iniciar nuvem acumulada com a primeira leitura
     print("Lendo primeira nuvem e registrando ...", flush=True);
     acc = load_filter_point_cloud(clouds_list[0], voxel_size=voxel_size_fr, depth_max=dobj, T=loam_poses_original[0])
-    acc = filter_depth(acc, dobj)
     acc = enclose_fov(acc, loam_poses_original[0], hor=fov_hor, ver=fov_ver)
-
-    plane_model, inliers = acc.segment_plane(distance_threshold=0.05, ransac_n=10, num_iterations=1000)
-    [a, b, c, d] = plane_model 
-    if -1.8 < d < -1.1:
-        acc = acc.select_by_index(inliers, invert=True) 
-        acc = remove_floor(acc, d)
+    acc = no_plane(acc)
 
     # Para cada nuvem, performar
     sfm_poses_list = []
@@ -83,20 +81,13 @@ for fo, folder_path in enumerate(folders_list):
         print(f"Registrando nuvem {i+1:d} de {len(clouds_list):d} ...", flush=True)
         # Ler e pre processar nuvem
         src = load_filter_point_cloud(clouds_list[i], voxel_size=voxel_size_fr, depth_max=dobj, T=loam_poses_original[i])
-        src = filter_depth(src, dobj)
         src = enclose_fov(src, loam_poses_original[i], hor=fov_hor, ver=fov_ver)
         # Transformar para o ultimo ajuste que fizemos por ICP
         src.transform(last_icp_adjust)
         # Retirar o chao por aproximacao de plano
-        plane_model, inliers = src.segment_plane(distance_threshold=0.05, ransac_n=10, num_iterations=1000)
-        [a, b, c, d] = plane_model            
-        if -1.8 < d < -1.1:
-            src = src.select_by_index(inliers, invert=True) 
-            src = remove_floor(src, d)
-        # Simplificar as nuvens por voxel para aproximar por ICP mais rapido
-        target = acc.voxel_down_sample(voxel_size_lr)
-        source = src.voxel_down_sample(voxel_size_lr)
-        transf, _ = pairwise_registration(source=source, target=target, voxel_size=0.01, intensity=intensity_icp, repeat=3, use_features=False)
+        src = no_plane(src)
+        # Aproximar as nuvens por ICP com ajuda manual se quiser
+        transf, _ = pairwise_registration(src=src, tgt=acc, manual=manual_registration)
         # Transforma a nuvem atual e acumula evitando repeticao
         src.transform(transf) 
         # Atualiza aproximacao do ICP sequencial
@@ -108,10 +99,8 @@ for fo, folder_path in enumerate(folders_list):
         sfm_poses_list.append(loam_poses_adjusted[i])
 
         # Acumula nuvem final   
-        print('Acumulando novos pontos na nuvem final ...', flush=True)     
-        src = enclose_fov(src, loam_poses_adjusted[i], hor=fov_hor, ver=fov_ver)
-        acc = remove_existing_points(acc, src, 4*voxel_size_fr)
-        acc += copy.deepcopy(src)#remove_existing_points(src, acc, 4*voxel_size_fr)
+        print('Acumulando novos pontos na nuvem final ...', flush=True)
+        acc += remove_existing_points(acc, src, 3*voxel_size_fr)
 
     # Criar versao final do SFM otimizada
     print("Criando arquivo de cameras .sfm otimizado ...", flush=True)

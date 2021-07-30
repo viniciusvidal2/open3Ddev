@@ -32,6 +32,9 @@
     <Compile Include="get_depth_images.py" />
     <Compile Include="hand_scan.py" />
     <Compile Include="hole_fill.py" />
+    <Compile Include="manual_register.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Open3d_apps.py" />
     <Compile Include="open3d_tests.py" />
     <Compile Include="original.py" />

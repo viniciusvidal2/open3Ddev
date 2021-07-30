@@ -1,4 +1,5 @@
 import open3d as o3d
+import matplotlib.pyplot as plt
 import numpy as np
 import sys, os
 import re
@@ -6,7 +7,81 @@ import math
 import copy
 import cv2
 import json
+import colorsys
+#######################################################################################################
+def no_plane(cloud):
+    plane_model, inliers = cloud.segment_plane(distance_threshold=0.1, ransac_n=10, num_iterations=1000)
+    [a, b, c, d] = plane_model 
+    if -1.8 < d < -1.1 and abs(b) > abs(a) and abs(b) > abs(c):
+        cloud2 = cloud.select_by_index(inliers, invert=True)
+        ys = np.asarray(cloud2.points)[:, 1]
+        return cloud2.select_by_index(np.argwhere(ys < abs(d)-0.2))
+    else:
+        ys = np.asarray(cloud.points)[:, 1]
+        return cloud.select_by_index(np.argwhere(ys < 1))
+#######################################################################################################
+def select_best_region(src, tgt):
+    dists = src.compute_point_cloud_distance(tgt)
+    srct = src.select_by_index(np.argwhere(np.asarray(dists) < 1))
+    mean, _ = srct.compute_mean_and_covariance()
+    b = 50
+    box = o3d.geometry.AxisAlignedBoundingBox(min_bound=np.asarray(mean)-b, max_bound=np.asarray(mean)+b)
+    return copy.deepcopy(src).crop(box), copy.deepcopy(tgt).crop(box)
+#######################################################################################################
+def filter_colors_hsv(cloud, lim1, lim2):
+    # Varrer os valores rgb, converter hsv e retirar os pontos desejados que estao dentro dos limites
+    hsvs = [colorsys.rgb_to_hsv(c[0], c[1], c[2]) for c in np.asarray(cloud.colors)]
+    indices = np.argwhere(np.array([1 if sum(hsv > lim1) + sum(hsv < lim2) == 6 else 0 for hsv in hsvs]))
 
+    return cloud.select_by_index(indices, invert=True)
+#######################################################################################################
+def filter_sun(cloud):
+    indices = []
+    # Olhando so parte superior da nuvem para ir mais rapido
+    zs = np.asarray(cloud.points)[:, 1]
+    cup = cloud.select_by_index(np.argwhere(zs < 0))
+    cdown = cloud.select_by_index(np.argwhere(zs >= 0))
+    # Criar direcoes apontando para cima
+    lats = math.pi/180*np.arange(-150, -30, 5)
+    lons = math.pi/180*np.arange(-179, 179, 5)
+    # Ver o ponto mais proximo e mais distante para limitar a busca
+    point_norms = [np.linalg.norm(p) for p in np.asarray(cup.points)]
+    closest = np.min(np.asarray(point_norms))
+    further = np.max(np.asarray(point_norms))
+    dists = np.arange(closest, further, 0.2)
+    # Setar um vetor de nuvens de pontos para medir a distancia em cada direcao
+    rays = []
+    for lat in lats:
+        for lon in lons:
+            vec = np.array([np.cos(lat)*np.sin(lon), np.sin(lat), np.cos(lat)*np.cos(lon)])
+            vec = vec/np.linalg.norm(vec)
+            pts = np.array([d*vec for d in dists])
+            ray = o3d.geometry.PointCloud()
+            ray.points = o3d.utility.Vector3dVector(pts)
+            rays.append(ray)
+    # Salvar o numero de pontos proximos para cada vetor e os indices desses pontos em duas listas
+    n_neighbors = []
+    close_indices = []
+    for r in rays:
+        dists = cup.compute_point_cloud_distance(r)
+        closers = np.argwhere(np.asarray(dists) < 2)
+        if len(closers) > 0:
+            n_neighbors.append(len(closers))
+            close_indices.append(closers)
+        else:
+            n_neighbors.append(0)
+            close_indices.append([])
+    # Os que tiverem mais pontos proximos sao apagados da nuvem inicial
+    max_neighbors = np.asarray(n_neighbors).max()
+    indices_remove = np.array([])
+    for i, n in enumerate(n_neighbors):
+        if n > 0.7*max_neighbors:
+            indices_remove = np.append(indices_remove, close_indices[i])
+    #off = cup.select_by_index(np.unique(indices_remove).astype(int))
+    cup = cup.select_by_index(np.unique(indices_remove).astype(int), invert=True)
+    cup, _ = cup.remove_statistical_outlier(nb_neighbors=10, std_ratio=2)
+    #o3d.visualization.draw_geometries([cup, off.paint_uniform_color([1, 0, 0])])
+    return cup + cdown
 #######################################################################################################
 def sorted_alphanum(file_list_ordered):
     convert = lambda text: int(text) if text.isdigit() else text
@@ -28,11 +103,9 @@ def get_file_list(path, ignored_files, extension=None):
     return file_list
 #######################################################################################################
 def filter_depth(cloud, dmax):
-    cloud2 = copy.deepcopy(cloud)
-    for i, point in enumerate(cloud.points):
-        d = math.sqrt(point[0]**2 + point[1]**2 + point[2]**2)
-        if d > dmax:
-            cloud2.points[i] = np.zeros(3)
+    dists = [np.linalg.norm(point) for point in np.asarray(cloud.points)]
+    indices = np.squeeze(np.argwhere(np.asarray(dists) < dmax))
+    cloud2 = cloud.select_by_index(indices)
 
     return cloud2
 #######################################################################################################
@@ -41,19 +114,10 @@ def remove_existing_points(src, tgt, radius):
     if len(tgt.points) == 0:
         return src
 
-    s2 = o3d.geometry.PointCloud()
     dists = np.squeeze(src.compute_point_cloud_distance(tgt))
     indices = np.squeeze(np.argwhere(np.asarray(dists, dtype=float) > radius))
-    s2.points = o3d.utility.Vector3dVector(np.asarray(src.points)[indices])
-    s2.colors = o3d.utility.Vector3dVector(np.asarray(src.colors)[indices])
-    if len(src.normals) > 1:
-        s2.normals = o3d.utility.Vector3dVector(np.asarray(src.normals)[indices])
-    #for i, d in enumerate(dists):
-    #    if d > radius:
-    #        s2.points.append(src.points[i])
-    #        s2.colors.append(src.colors[i])
-    #        s2.normals.append(src.normals[i])
-    return s2
+    
+    return src.select_by_index(indices)
 #######################################################################################################
 def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
     pcds = []
@@ -75,16 +139,20 @@ def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
 
     return pcds
 #######################################################################################################
-def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10, T=np.identity(4, float)):
+def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10, T=np.identity(4, float), raycast=False):
     pcd = o3d.io.read_point_cloud(name)
+    if len(pcd.points) < 100:
+        return o3d.geometry.PointCloud()
+    pcd_down, _ = pcd.remove_statistical_outlier(nb_neighbors=10, std_ratio=3)
     if voxel_size != 0:
-        pcd_down2 = pcd.voxel_down_sample(voxel_size=voxel_size)
+        pcd_down2 = pcd_down.voxel_down_sample(voxel_size=voxel_size)
     else:
-        pcd_down2 = copy.deepcopy(pcd)
-    pcd_down2.remove_statistical_outlier(nb_neighbors=200, std_ratio=0.5)
+        pcd_down2 = copy.deepcopy(pcd_down)
+    #pcd_down2, _ = pcd_down2.remove_statistical_outlier(nb_neighbors=30, std_ratio=2.5)
     pcd_down2.transform(T)
-    #pcd_down2 = filter_depth(copy.deepcopy(pcd_down), depth_max)
-    #pcd_down2 = raycasting(pcd_down2, 0.5, 22, 88, voxel_size, depth_max)
+    pcd_down2 = filter_depth(copy.deepcopy(pcd_down2), depth_max)
+    if raycast:
+        pcd_down2 = raycasting(pcd_down2, 1, 30, 75, 0.05, depth_max)
     if len(pcd_down2.points) > 10:
         pcd_down2.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=5*voxel_size, max_nn=100))
         pcd_down2.orient_normals_towards_camera_location()
@@ -94,43 +162,113 @@ def load_filter_point_cloud(name, voxel_size=0.0, depth_max=10, T=np.identity(4,
 
     return pcd_down2
 #######################################################################################################
-def pairwise_registration(source, target, voxel_size, intensity=3, repeat=1, use_features=False, initial=np.identity(4, float)):
-    
+def pick_points(pcd):
+    print("", flush=True)
+    print("1) Por favor escolha no minimo 3 pontos correspondentes utilizando [shift + botao esquerdo do mouse]", flush=True)
+    print("   Pressione [shift + botao direito do mouse] para desfazer um clique, caso necessario", flush=True)
+    print("2) Ao final, pressione 'Q' para fechar a janela", flush=True)
+    with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Error) as cm:
+        vis = o3d.visualization.VisualizerWithEditing()
+        vis.create_window()
+        vis.add_geometry(pcd)
+        vis.run()  # user picks points
+        vis.destroy_window()
+        return vis.get_picked_points()
+#######################################################################################################
+def manual_registration(source, target):
+    # Mostrar as nuvens para ter uma ideia
+    print("Visualizando nuvens antes do alinhamento ...", flush=True)
+    source_temp = copy.deepcopy(source)
+    target_temp = copy.deepcopy(target)
+    source_temp.paint_uniform_color([1, 0.706, 0])
+    target_temp.paint_uniform_color([0, 0.651, 0.929])
+    o3d.visualization.draw_geometries(window_name='Demonstrativo das nuvens', geometry_list=[source_temp, target_temp])
+
+    # pick points from two point clouds and builds correspondences
+    print("Escolhendo pontos da nuvem source ...", flush=True)
+    picked_id_source = pick_points(source)
+    print("Escolhendo pontos da nuvem target ...", flush=True)
+    picked_id_target = pick_points(target)
+    print("", flush=True)
+
+    assert (len(picked_id_source) >= 3 and len(picked_id_target) >= 3)
+    assert (len(picked_id_source) == len(picked_id_target))
+    corr = np.zeros((len(picked_id_source), 2))
+    corr[:, 0] = picked_id_source
+    corr[:, 1] = picked_id_target
+
+    # estimate rough transformation using correspondences
+    p2p = o3d.pipelines.registration.TransformationEstimationPointToPoint()
+    trans_init = p2p.compute_transformation(source, target, o3d.utility.Vector2iVector(corr))
+
+    return trans_init
+#######################################################################################################
+def pairwise_registration(src, tgt, use_features=False, initial=np.identity(4, float), manual=False):    
     Tsa = np.identity(4, float)
+    # Separar em conjunto de voxels, intensidades e distancias a serem checadas 
+    voxels = [0.2, 0.1, 0.04]
+    min_dists = [10, 2, 0.10]
+    iterations = [1500, 1000, 700]
+    planes_removed = False
 
-    if use_features:
-        radius_feature = 6*voxel_size
-        source_fpfh = o3d.pipelines.registration.compute_fpfh_feature(source, o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=200))
-        target_fpfh = o3d.pipelines.registration.compute_fpfh_feature(target, o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=200))
-        result_fast = o3d.pipelines.registration.registration_fast_based_on_feature_matching(source, target, source_fpfh, target_fpfh, 
-                                                                                             o3d.pipelines.registration.FastGlobalRegistrationOption(
-                                                                                                 maximum_correspondence_distance=voxel_size))
-        #result_fast = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(source, target, source_fpfh, target_fpfh, max_correspondence_distance=1.5*voxel_size,
-        #                                                                                       checkers=[o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold=voxel_size)])
-        Tsa = result_fast.transformation
+    if manual:
+        voxel_size = voxels[-1]
+        target = tgt.voxel_down_sample(voxel_size)
+        source = src.voxel_down_sample(voxel_size)
+        source, _ = source.remove_statistical_outlier(nb_neighbors=10, std_ratio=2)
+        Tsa = manual_registration(source, target)
+        print('Refinando a aproximacao ...', flush=True)
+        source, target = select_best_region(source.transform(Tsa), target)
+        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-15, relative_rmse=1e-15, max_iteration=250)
+        icp_fine = o3d.pipelines.registration.registration_icp(source, target, 0.06, np.eye(4), o3d.pipelines.registration.TransformationEstimationPointToPlane(), criteria)
+        Tsa = np.dot(icp_fine.transformation, Tsa)
+        teste = copy.deepcopy(source).transform(icp_fine.transformation)
+        o3d.visualization.draw_geometries(geometry_list=[teste.paint_uniform_color([0, 1, 0]), target], window_name='Resultado Final')
+        return Tsa, _
     else:
-        Tsa = initial
+        if use_features:
+            voxel_size = voxels[0]
+            target = no_plane(tgt.voxel_down_sample(voxel_size)) if planes_removed else tgt.voxel_down_sample(voxel_size)
+            source = no_plane(src.voxel_down_sample(voxel_size)) if planes_removed else src.voxel_down_sample(voxel_size)
+            #target.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size, max_nn=10))
+            #target.orient_normals_towards_camera_location()
+            #source.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size, max_nn=10))
+            #source.orient_normals_towards_camera_location()
+            source, target = select_best_region(source, target)
+            radius_feature = 8*voxel_size
+            source_fpfh = o3d.pipelines.registration.compute_fpfh_feature(source, o3d.geometry.KDTreeSearchParamRadius(radius=radius_feature))
+            target_fpfh = o3d.pipelines.registration.compute_fpfh_feature(target, o3d.geometry.KDTreeSearchParamRadius(radius=radius_feature))
+            result_fast = o3d.pipelines.registration.registration_fast_based_on_feature_matching(source, target, source_fpfh, target_fpfh, 
+                                                                                                 o3d.pipelines.registration.FastGlobalRegistrationOption(
+                                                                                                     maximum_correspondence_distance=voxel_size/3))
+            #result_fast = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(source, target, source_fpfh, target_fpfh, max_correspondence_distance=1.5*voxel_size,
+            #                                                                                       checkers=[o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold=voxel_size)])
+            Tsa = result_fast.transformation
+        else:
+            Tsa = initial
+    
+        teste = copy.deepcopy(src)
+        o3d.visualization.draw_geometries([teste.transform(Tsa).paint_uniform_color([0, 1, 1]), tgt], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+        # Rodar para cada conjunto de voxels o procedimento
+        for i in range(len(voxels)):
+            target = no_plane(tgt.voxel_down_sample(voxels[i])) if planes_removed else tgt.voxel_down_sample(voxels[i])
+            source = no_plane(src.voxel_down_sample(voxels[i])) if planes_removed else src.voxel_down_sample(voxels[i])
+            source, target = select_best_region(source, target)
+            target, _ = target.remove_statistical_outlier(nb_neighbors=10, std_ratio=2)
+            source, _ = source.remove_statistical_outlier(nb_neighbors=10, std_ratio=2)
 
-    dist_min_icp = intensity*voxel_size
-    criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-10, relative_rmse=1e-10, max_iteration=100) 
-    #o3d.visualization.draw_geometries([source, target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-15, relative_rmse=1e-15, max_iteration=iterations[i])
+            icp_fine = o3d.pipelines.registration.registration_icp(source, target, min_dists[i], Tsa, o3d.pipelines.registration.TransformationEstimationPointToPlane(), criteria)
+            if len(icp_fine.correspondence_set) == 0:
+                continue
+            if abs(check_angle(icp_fine.transformation, np.eye(4))) < 50 and icp_fine.fitness != 1.0:
+                Tsa = icp_fine.transformation
+            print(icp_fine, flush=True)
+
+            teste = copy.deepcopy(source).transform(Tsa)
+            o3d.visualization.draw_geometries([teste.paint_uniform_color([0, 1, 0]), target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
-    for i in range(intensity-1):
-        icp_fine = o3d.pipelines.registration.registration_colored_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationForColoredICP(), criteria)
-        #icp_fine = o3d.pipelines.registration.registration_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationPointToPoint(), criteria)
-        Tsa = icp_fine.transformation
-        dist_min_icp -= voxel_size
-        #teste = copy.deepcopy(source)
-        #o3d.visualization.draw_geometries([teste.transform(Tsa), target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
-    
-    for i in range(repeat):
-        icp_fine = o3d.pipelines.registration.registration_colored_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationForColoredICP(), criteria)
-        #icp_fine = o3d.pipelines.registration.registration_icp(source, target, dist_min_icp, Tsa, o3d.pipelines.registration.TransformationEstimationPointToPoint(), criteria)
-        Tsa = icp_fine.transformation
-    
-    transformation_icp = icp_fine.transformation
-    information_icp    = o3d.pipelines.registration.get_information_matrix_from_point_clouds(source, target, dist_min_icp, icp_fine.transformation)
-    return transformation_icp, information_icp
+        return Tsa, _
 #######################################################################################################
 def full_registration(pcds, voxel_size, poses, loop_closure=True, transfs=[], infos=[]):
     pose_graph = o3d.pipelines.registration.PoseGraph()
@@ -178,8 +316,7 @@ def color_point_clouds(folder_path, clouds, k, t):
 
     return clouds2
 #######################################################################################################
-def color_point_cloud(image_path, cloud, k, t):
-  
+def color_point_cloud(image_path, cloud, k, t):  
     t = t[:, np.newaxis]
     cloud2 = copy.deepcopy(cloud)
     im = cv2.imread(image_path)
@@ -193,27 +330,74 @@ def color_point_cloud(image_path, cloud, k, t):
 
     return cloud2
 #######################################################################################################
-def raycasting(cloud, step, fov_lat, fov_lon, voxel_size, max_depth):
+def raycasting(cloud, step, fov_lat, fov_lon, thresh, max_depth):
     cloud2 = o3d.geometry.PointCloud()
     # Campo de visao para procurar - angulos
     lats = math.pi/180*np.arange(-fov_lat/2, fov_lat/2, step)
     lons = math.pi/180*np.arange(-fov_lon/2, fov_lon/2, step)
-    # Criar os vetores de direcao e buscar com Kdtree
-    dists = np.arange(2, max_depth, voxel_size)
-    tree = o3d.geometry.KDTreeFlann(cloud)
+    # Ver o ponto mais proximo e mais distante para limitar a busca
+    point_norms = [np.linalg.norm(p) for p in np.asarray(cloud.points)]
+    closest = np.min(np.asarray(point_norms))
+    further = np.max(np.asarray(point_norms))
+    dists = np.arange(closest, further, thresh)
+    # Criar a esfera a partir dos angulos de coordenada desejados, para avancar como uma onda sobre a nuvem
+    sphere_wave = o3d.geometry.PointCloud()
+    pp = []
     for lat in lats:
         for lon in lons:
             vec = np.array([np.cos(lat)*np.sin(lon), np.sin(lat), np.cos(lat)*np.cos(lon)])
-            # Para cada direcao, seguir com pontos 3D nessa linha
-            for d in dists:
-                # Testar se ha vizinhos na nuvem para aquele ponto, se sim adicionar o ponto na nova nuvem                
-                [points, indices, _] = tree.search_radius_vector_3d(d*vec, 2*voxel_size)
-                if len(indices) >= 1:
-                    cloud2.points.append(cloud.points[indices[0]])
-                    cloud2.colors.append(cloud.colors[indices[0]])
-                    break
+            vec = vec/np.linalg.norm(vec)
+            pp.append(vec)
+    sphere_wave.points = o3d.utility.Vector3dVector(np.array(pp))
+    # Varrer para cada distancia os pontos da nuvem que passam, e seleciona-los
+    sphere_ignore_indices = []
+    point_cloud_valid_indices = []
+    sphere_wave_temp = o3d.geometry.PointCloud()
+    for d in dists:
+        sphere_wave_temp.points = o3d.utility.Vector3dVector(np.asarray(sphere_wave.points)*d)
+        distances1 = np.squeeze(sphere_wave_temp.compute_point_cloud_distance(cloud))
+        # Pontos proximos na esfera serao apagados
+        sphere_ignore_indices = np.argwhere(distances1 < thresh)
+        # Pontos proximos na nuvem sao selecionados
+        if len(sphere_ignore_indices) > 0:
+            distances2 = np.squeeze(cloud.compute_point_cloud_distance(sphere_wave_temp))
+            valids = np.argwhere(distances2 < thresh)
+            if len(valids) > 0:
+                point_cloud_valid_indices = np.append(point_cloud_valid_indices, valids)
+            test = sphere_wave.select_by_index(sphere_ignore_indices)
+            sphere_wave = sphere_wave.select_by_index(sphere_ignore_indices, invert=True)
+            #o3d.visualization.draw_geometries([sphere_wave_temp.paint_uniform_color([1, 0, 0]), cloud, test])
 
-    return cloud2
+    # Separar os pontos validos
+    if len(point_cloud_valid_indices) > 0:
+        return cloud.select_by_index(np.unique(point_cloud_valid_indices.astype(int)))
+
+
+    #for lat in lats:
+    #    for lon in lons:
+    #        vec = np.array([np.cos(lat)*np.sin(lon), np.sin(lat), np.cos(lat)*np.cos(lon)])
+    #        # Para cada direcao, criar a linha que representa o raio 
+    #        ray_points = np.array([d*vec for d in dists])
+    #        # Testar se ha vizinhos na nuvem para aquele ponto, se sim adicionar o ponto na nova nuvem  
+    #        for r in ray_points:              
+    #            [_, indices, _] = tree.search_radius_vector_3d(r, 0.1)
+    #            if len(indices) >= 1:
+    #                points_indices.append(indices[0])
+    #                break
+            
+    #if len(points_indices) > 0:
+    #    return cloud.select_by_index(points_indices)
+               
+    #return cloud
+
+    ##            # Testar se ha vizinhos na nuvem para aquele ponto, se sim adicionar o ponto na nova nuvem                
+    ##            [points, indices, _] = tree.search_knn_vector_3d(, 2*voxel_size)
+    ##            if len(indices) >= 1:
+    ##                cloud2.points.append(cloud.points[indices[0]])
+    ##                cloud2.colors.append(cloud.colors[indices[0]])
+    ##                break
+
+    ##return cloud2
 #######################################################################################################
 def create_sfm_file(name, images_list, Ts, k=np.identity(3, float), Tcam=np.identity(4, float), only_write=False):
     fx = np.asarray(k)[0][0]
