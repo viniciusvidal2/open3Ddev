@@ -20,7 +20,7 @@ powershell Compress-Archive cloud_executables cloud_executables.zip
 
 rem Move para o Google Drive
 del C:\Users\vinic\GoogleDrive\Executable_CapDesktop\cloud_executables.zip
-move cloud_executables.zip C:\Users\vinic\GoogleDrive\Executable_CapDesktop
+move cloud_executables.zip G:\\Meu\ Drive\\Executable_CapDesktop
 
 rem Apaga repositorios antigos se existirem
 rmdir register_space_cap2 /S /Q

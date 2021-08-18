@@ -11,7 +11,7 @@ import json
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.0'
+version = '1.3.2'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
@@ -20,7 +20,7 @@ parser.add_argument('-root_path' , type=str  , required=True ,
                     default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
 parser.add_argument('-resolution', type=float, required=False, 
-                    default=0.05,
+                    default=0.04,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
 parser.add_argument('-reprocess_each_scan', type=bool, required=False, 
                     default=False,
@@ -31,7 +31,7 @@ parser.add_argument('-reprocess_optimization', type=bool, required=False,
 parser.add_argument('-manual_registration', type=bool, required=False, 
                     default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\ambientes\\santosdumont_patio1'])
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\ambientes\\estacionamento'])
 args = parser.parse_args()
 root_path     = args.root_path  
 voxel_size    = args.resolution
@@ -62,72 +62,77 @@ for fo, folder_path in enumerate(folders_list):
         do_process = True
 
     if do_process:
-        # Ler arquivo SFM e imagens
+        # Ler arquivo SFM, se houver
         print(f"Lendo arquivo SFM do SCAN {fo+1:d} ...", flush=True)
-        raw_poses = read_sfm_file(os.path.join(folder_path, "cameras.sfm"))[:80]
-        images_list = get_file_list(folder_path, ignored_files, extension=".png")
-        images_list = [im for im in images_list if im.split('\\')[-1][0:6] == 'imagem']
-        if len(raw_poses) != len(images_list):
-            raise Exception("Ha um problema com as imagens no diretorio deste SCAN, por favor checar.")
-
-        # Se o arquivo de nuvem existir correspondente a cada imagem, ler e processar (evita nuvens vazias observando o ceu, por exemplo)
-        # Ao completar um PPV, somar ali todas as nuvens
-        ppv_clouds = []
-        ppv_cloud = o3d.geometry.PointCloud()
-        ntilts = 8
-        for i in range(len(images_list)):
-            cloud_path = os.path.join(folder_path, 'c_'+str(i+1).zfill(3)+'.ply')
-            if os.path.exists(cloud_path):
-                # Pre processar a nuvem
-                print(f'Nuvem {i+1:d} de {len(images_list)} existe, processando ...', flush=True)
-                cloud = load_filter_point_cloud(cloud_path, voxel_size, 50, raw_poses[i])                
-                # Somar na vista do PPV
-                ppv_cloud += cloud#remove_existing_points(cloud, ppv_cloud, voxel_size)
-                # Mudar de PPV e salvar aquele se for o caso
-            if i > 0 and (i+1) % ntilts == 0:
-                print('Ajustando este PPV ...', flush=True)
-                ppv_clouds.append(copy.deepcopy(ppv_cloud.voxel_down_sample(voxel_size)))
-                ppv_cloud.clear()    
-        ppv_cloud.clear()
-
-        if debug:
-            print("Visualizando resultado cru...", flush=True)
-            o3d.visualization.draw_geometries(ppv_clouds, zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+        if not os.path.exists(os.path.join(folder_path, "cameras.sfm")):
+            print(f'NAO FOI AQUISITADO CORRETAMENTE - PROBLEMA NO ARQUIVO DE IMAGENS PARA O SCAN {fo+1:d}. O SCAN NAO SERA PROCESSADO,' \
+                ' E PODERA CAUSAR DANOS A AQUISICAO FINAL', flush=True)
+        else:
+            raw_poses = read_sfm_file(os.path.join(folder_path, "cameras.sfm"))[:80]
+            images_list = get_file_list(folder_path, ignored_files, extension=".png")
+            images_list = [im for im in images_list if im.split('\\')[-1][0:6] == 'imagem']
+            if len(raw_poses) != len(images_list):
+                im_temp = cv2.imread(images_list[64])
+                cv2.imwrite(os.path.join(folder_path, 'imagem_080.png'), im_temp)
     
-        # Por lado a lado cada nuvem, aproximando por ICP
-        acc = copy.deepcopy(ppv_clouds[0])
-        transform_list = []
-        transform_list.append(np.identity(4, float))
-        for i, cloud in enumerate(ppv_clouds):
-            if i > 0:
-                print(f"Otimizando nuvem {i+1:d} de {len(ppv_clouds):d} PPVs ...", flush=True)
-                target = acc.voxel_down_sample(voxel_size)
-                source = cloud.voxel_down_sample(voxel_size)   
-                transf = np.eye(4)   
-                acc += remove_existing_points(cloud, acc, voxel_size)
-                # Salvar transformacao de cada PPV em uma lista
-                transform_list.append(transf)
-        ppv_clouds.clear()
-        # Filtrando possivel presenca de sol
-        #print("Filtrando ruidos ...")
-        #acc = filter_sun(acc)
+            # Se o arquivo de nuvem existir correspondente a cada imagem, ler e processar (evita nuvens vazias observando o ceu, por exemplo)
+            # Ao completar um PPV, somar ali todas as nuvens
+            ppv_clouds = []
+            ppv_cloud = o3d.geometry.PointCloud()
+            ntilts = 8
+            for i in range(len(images_list)):
+                cloud_path = os.path.join(folder_path, 'c_'+str(i+1).zfill(3)+'.ply')
+                if os.path.exists(cloud_path):
+                    # Pre processar a nuvem
+                    print(f'Nuvem {i+1:d} de {len(images_list)} existe, processando ...', flush=True)
+                    cloud = load_filter_point_cloud(cloud_path, voxel_size, 50, raw_poses[i])                
+                    # Somar na vista do PPV
+                    ppv_cloud += cloud#remove_existing_points(cloud, ppv_cloud, voxel_size)
+                    # Mudar de PPV e salvar aquele se for o caso
+                if i > 0 and (i+1) % ntilts == 0:
+                    print('Ajustando este PPV ...', flush=True)
+                    ppv_clouds.append(copy.deepcopy(ppv_cloud.voxel_down_sample(voxel_size)))
+                    ppv_cloud.clear()    
+            ppv_cloud.clear()
 
-        print(f"Salvando resultado do SCAN {fo+1:d} ...", flush=True)
-        o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada_opt.ply"), filter_depth(acc.voxel_down_sample(voxel_size), 40))
+            if debug:
+                print("Visualizando resultado cru...", flush=True)
+                o3d.visualization.draw_geometries(ppv_clouds, zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+    
+            # Por lado a lado cada nuvem, aproximando por ICP
+            acc = copy.deepcopy(ppv_clouds[0])
+            transform_list = []
+            transform_list.append(np.identity(4, float))
+            for i, cloud in enumerate(ppv_clouds):
+                if i > 0:
+                    print(f"Otimizando nuvem {i+1:d} de {len(ppv_clouds):d} PPVs ...", flush=True)
+                    target = acc.voxel_down_sample(voxel_size)
+                    source = cloud.voxel_down_sample(voxel_size)   
+                    transf = np.eye(4)   
+                    acc += remove_existing_points(cloud, acc, voxel_size)
+                    # Salvar transformacao de cada PPV em uma lista
+                    transform_list.append(transf)
+            ppv_clouds.clear()
+            # Filtrando possivel presenca de sol
+            #print("Filtrando ruidos ...")
+            #acc = filter_sun(acc)
 
-        if debug:
-            print("Visualizando resultado otimizado ...", flush=True)
-            o3d.visualization.draw_geometries([acc], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+            print(f"Salvando resultado do SCAN {fo+1:d} ...", flush=True)
+            o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada_opt.ply"), filter_depth(acc.voxel_down_sample(voxel_size), 40))
 
-        # Multiplicar as poses do arquivo pela otimizada aqui
-        new_poses = []
-        for i, p in enumerate(raw_poses):
-            Tppv = np.dot( transform_list[int(i/ntilts)], np.linalg.inv(p) )
-            new_poses.append(np.linalg.inv(Tppv))
+            if debug:
+                print("Visualizando resultado otimizado ...", flush=True)
+                o3d.visualization.draw_geometries([acc], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
 
-        # Salvar o arquivo SFM
-        print("Salvando arquivo SFM otimizado ...", flush=True)
-        create_sfm_file(os.path.join(folder_path, "cameras_opt.sfm"), images_list, new_poses, k=k, only_write=True)
+            # Multiplicar as poses do arquivo pela otimizada aqui
+            new_poses = []
+            for i, p in enumerate(raw_poses):
+                Tppv = np.dot( transform_list[int(i/ntilts)], np.linalg.inv(p) )
+                new_poses.append(np.linalg.inv(Tppv))
+
+            # Salvar o arquivo SFM
+            print("Salvando arquivo SFM otimizado ...", flush=True)
+            create_sfm_file(os.path.join(folder_path, "cameras_opt.sfm"), images_list, new_poses, k=k, only_write=True)
 
 #####################################
 # --------------------------------- #
