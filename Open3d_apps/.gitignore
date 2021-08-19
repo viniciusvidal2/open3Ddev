@@ -1,0 +1,6 @@
+cloud_executables.zip
+__pycache__\\*
+*.sln
+*.pyproj
+*.spec
+__pycache__/*.pyc

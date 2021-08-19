@@ -11,7 +11,7 @@ import json
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.2'
+version = '1.3.3'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
@@ -20,20 +20,20 @@ parser.add_argument('-root_path' , type=str  , required=True ,
                     default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
 parser.add_argument('-resolution', type=float, required=False, 
-                    default=0.04,
+                    default=0.2,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
-parser.add_argument('-reprocess_each_scan', type=bool, required=False, 
+parser.add_argument('-reprocess_each_scan', type=str2bool, required=False, 
                     default=False,
                     help='Flag to set if each scan raw data must be processed and optimized again. Not considered if it is the first runtime.')
-parser.add_argument('-reprocess_optimization', type=bool, required=False, 
+parser.add_argument('-reprocess_optimization', type=str2bool, required=False, 
                     default=False,
                     help='Flag to set if the whole space optimization must be processed and optimized again, not only the non processed scans. Not considered if it is the first runtime.')
-parser.add_argument('-manual_registration', type=bool, required=False, 
-                    default=True,
+parser.add_argument('-manual_registration', type=str2bool, required=False, 
+                    default=False,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\ambientes\\estacionamento'])
+#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\DadosCAP\\ambientes\\estacionamento'])
 args = parser.parse_args()
-root_path     = args.root_path  
+root_path     = args.root_path
 voxel_size    = args.resolution
 reprocess     = args.reprocess_each_scan
 reoptimize    = args.reprocess_optimization

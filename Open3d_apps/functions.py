@@ -246,8 +246,8 @@ def pairwise_registration(src, tgt, use_features=False, initial=np.identity(4, f
         else:
             Tsa = initial
     
-        teste = copy.deepcopy(src)
-        o3d.visualization.draw_geometries([teste.transform(Tsa).paint_uniform_color([0, 1, 1]), tgt], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+        #teste = copy.deepcopy(src)
+        #o3d.visualization.draw_geometries([teste.transform(Tsa).paint_uniform_color([0, 1, 1]), tgt], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
         # Rodar para cada conjunto de voxels o procedimento
         for i in range(len(voxels)):
             target = no_plane(tgt.voxel_down_sample(voxels[i])) if planes_removed else tgt.voxel_down_sample(voxels[i])
@@ -262,10 +262,10 @@ def pairwise_registration(src, tgt, use_features=False, initial=np.identity(4, f
                 continue
             if abs(check_angle(icp_fine.transformation, np.eye(4))) < 50 and icp_fine.fitness != 1.0:
                 Tsa = icp_fine.transformation
-            print(icp_fine, flush=True)
+            #print(icp_fine, flush=True)
 
-            teste = copy.deepcopy(source).transform(Tsa)
-            o3d.visualization.draw_geometries([teste.paint_uniform_color([0, 1, 0]), target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+            #teste = copy.deepcopy(source).transform(Tsa)
+            #o3d.visualization.draw_geometries([teste.paint_uniform_color([0, 1, 0]), target], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
         return Tsa, _
 #######################################################################################################
@@ -577,4 +577,14 @@ def blueprint(cl, poses, fl, scale):
             cv2.putText(blueprint_im, f'{indice_scan:02d}', (u-12,v+7), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=2)
 
     return np.uint8(blueprint_im), json_out
+#######################################################################################################
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 #######################################################################################################

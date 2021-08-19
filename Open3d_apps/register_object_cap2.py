@@ -10,7 +10,7 @@ import argparse
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.2'
+version = '1.3.3'
 # Parametros recebidos pela linha de comando
 parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
                                  '. It processes the final object point cloud, from the data acquired '
@@ -26,7 +26,7 @@ parser.add_argument('-fov_ver'      , type=float, required=False, default=30,
 parser.add_argument('-intensity_icp', type=int  , required=False, default=5,
                     help='The number of repetitions for the ICP optimization operation. Increasing this parameter value generally improves point cloud optimization,'
                     ' demanding more processing time.')
-parser.add_argument('-manual_registration', type=bool, required=False, 
+parser.add_argument('-manual_registration', type=str2bool, required=False, 
                     default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
 #args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\objetos\\santosdumont_transformador'])
