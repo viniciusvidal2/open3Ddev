@@ -11,7 +11,7 @@ import json
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.3'
+version = '1.3.4'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
@@ -20,7 +20,7 @@ parser.add_argument('-root_path' , type=str  , required=True ,
                     default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\ambientes\\demonstracao_ambiente", 
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP. ')
 parser.add_argument('-resolution', type=float, required=False, 
-                    default=0.2,
+                    default=0.04,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
 parser.add_argument('-reprocess_each_scan', type=str2bool, required=False, 
                     default=False,
@@ -29,9 +29,9 @@ parser.add_argument('-reprocess_optimization', type=str2bool, required=False,
                     default=False,
                     help='Flag to set if the whole space optimization must be processed and optimized again, not only the non processed scans. Not considered if it is the first runtime.')
 parser.add_argument('-manual_registration', type=str2bool, required=False, 
-                    default=False,
+                    default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\DadosCAP\\ambientes\\estacionamento'])
+#args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\galeriaMecanica2'])
 args = parser.parse_args()
 root_path     = args.root_path
 voxel_size    = args.resolution
@@ -174,7 +174,7 @@ if len(folders_list) > 1:
         register_order = list(range(gps_ref_ind-1, -1, -1)) + list(range(gps_ref_ind+1, len(folders_list), 1))
     # Ler a primeira nuvem e ajeitar referencias de GPS
     print('Definindo SCAN de referencia ...', flush=True)
-    final_cloud = o3d.io.read_point_cloud(os.path.join(folders_list[i], 'acumulada_opt.ply'))#load_filter_point_cloud(os.path.join(folders_list[gps_ref_ind], 'acumulada_opt.ply'), voxel_size, depth_max=40.0)#
+    final_cloud = o3d.io.read_point_cloud(os.path.join(folders_list[gps_ref_ind], 'acumulada_opt.ply'))#load_filter_point_cloud(os.path.join(folders_list[gps_ref_ind], 'acumulada_opt.ply'), voxel_size, depth_max=40.0)#
     gps_file = open(os.path.join(folders_list[gps_ref_ind], 'gps.txt'), 'r')
     gps_ref  = gps_file.readlines()
     gps_file.close()
@@ -217,7 +217,7 @@ if len(folders_list) > 1:
         temp_cloud.transform(transf)
         # Somar a nuvem final
         print("Adicionando resultado na nuvem de pontos global ...", flush=True)
-        final_cloud += remove_existing_points(temp_cloud, final_cloud, 3*voxel_size)
+        final_cloud += remove_existing_points(temp_cloud, final_cloud, voxel_size)
 
         # Lista de imagens e sfm daquela pasta
         temp_poses = read_sfm_file(os.path.join(folders_list[i], "cameras_opt.sfm"))
@@ -240,10 +240,12 @@ if len(folders_list) > 1:
             json.dump(optimizations_data, fp)
 
     # Retirar pontos azuis
-    print("Filtrando pontos azuis ...", flush=True)
-    min_blue = np.array([60, 35, 0])/255
-    max_blue = np.array([180, 255, 255])/255
-    final_cloud = filter_colors_hsv(final_cloud, min_blue, max_blue)
+    if not ambiente_interno:
+        print("Filtrando pontos azuis ...", flush=True)
+        min_blue = np.array([60, 35, 0])/255
+        max_blue = np.array([180, 255, 255])/255
+        final_cloud = filter_colors_hsv(final_cloud, min_blue, max_blue)
+    print("Retirando ruidos finais ...", flush=True)
     final_cloud, _ = final_cloud.remove_statistical_outlier(nb_neighbors=10, std_ratio=3)
     # Salvar arquivos finais de SFM e nuvem total na raiz
     print("Salvando arquivo de poses das cameras ...", flush=True)

@@ -112,11 +112,16 @@ def filter_depth(cloud, dmax):
 def remove_existing_points(src, tgt, radius):
     if len(tgt.points) == 0:
         return src
+    # Somente somar as nuvens
+    out = src + tgt
+    # Passar voxel no resultado
+    return out.voxel_down_sample(voxel_size=radius)
 
-    dists = np.squeeze(src.compute_point_cloud_distance(tgt))
-    indices = np.squeeze(np.argwhere(np.asarray(dists, dtype=float) > radius))
+
+    #dists = np.squeeze(src.compute_point_cloud_distance(tgt))
+    #indices = np.squeeze(np.argwhere(np.asarray(dists, dtype=float) > radius))
     
-    return src.select_by_index(indices)
+    #return src.select_by_index(indices) if indices.size > 1 else o3d.geometry.PointCloud()
 #######################################################################################################
 def load_point_clouds(folder, final_name, voxel_size=0.0, depth_max=10):
     pcds = []
@@ -165,6 +170,7 @@ def pick_points(pcd):
     print("", flush=True)
     print("1) Por favor escolha no minimo 3 pontos correspondentes utilizando [shift + botao esquerdo do mouse]", flush=True)
     print("   Pressione [shift + botao direito do mouse] para desfazer um clique, caso necessario", flush=True)
+    print("   OBS: Caso entenda que o alinhamento ja atende o requisito necessario, nao ha necessidade de selecionar nenhum ponto", flush=True)
     print("2) Ao final, pressione 'Q' para fechar a janela", flush=True)
     with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Error) as cm:
         vis = o3d.visualization.VisualizerWithEditing()
@@ -190,15 +196,19 @@ def manual_registration(source, target):
     picked_id_target = pick_points(target)
     print("", flush=True)
 
-    assert (len(picked_id_source) >= 3 and len(picked_id_target) >= 3)
-    assert (len(picked_id_source) == len(picked_id_target))
-    corr = np.zeros((len(picked_id_source), 2))
-    corr[:, 0] = picked_id_source
-    corr[:, 1] = picked_id_target
+    # Checar se a pessoa escolheu pontos, pois ja pode ser que esteja bom o alinhamento inicial
+    if len(picked_id_source) > 0 and len(picked_id_target) > 0:
+        assert (len(picked_id_source) >= 3 and len(picked_id_target) >= 3)
+        assert (len(picked_id_source) == len(picked_id_target))
+        corr = np.zeros((len(picked_id_source), 2))
+        corr[:, 0] = picked_id_source
+        corr[:, 1] = picked_id_target
 
-    # estimate rough transformation using correspondences
-    p2p = o3d.pipelines.registration.TransformationEstimationPointToPoint()
-    trans_init = p2p.compute_transformation(source, target, o3d.utility.Vector2iVector(corr))
+        # estimate rough transformation using correspondences
+        p2p = o3d.pipelines.registration.TransformationEstimationPointToPoint()
+        trans_init = p2p.compute_transformation(source, target, o3d.utility.Vector2iVector(corr))
+    else:
+        return np.identity(4, float)
 
     return trans_init
 #######################################################################################################
