@@ -10,16 +10,16 @@ import argparse
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.4'
+version = '1.3.5'
 # Parametros recebidos pela linha de comando
 parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
                                  '. It processes the final object point cloud, from the data acquired '
                                  'by the CAP scanner.', epilog='Fill the parameters accordingly.')
 parser.add_argument('-root_path'    , type=str  , required=True, default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\demonstracao_objeto",
                     help='REQUIRED. Path for the project root. All \"scanX\" folders should be in here, fully synchronized with CAP.')
-parser.add_argument('-dobj'         , type=float, required=False, default=5,
+parser.add_argument('-dobj'         , type=float, required=False, default=20,
                     help='Maximum distance from the scanner that the object was acquired. Points with further distances will be removed')
-parser.add_argument('-fov_hor'      , type=float, required=False, default=30,
+parser.add_argument('-fov_hor'      , type=float, required=False, default=50,
                     help='Horizontal Field of View accepted for every acquisition. Points out of this limit will be removed.')
 parser.add_argument('-fov_ver'      , type=float, required=False, default=30,
                     help='Vertical Field of View accepted for every acquisition. Points out of this limit will be removed.')
@@ -29,7 +29,7 @@ parser.add_argument('-intensity_icp', type=int  , required=False, default=5,
 parser.add_argument('-manual_registration', type=str2bool, required=False, 
                     default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-#args = parser.parse_args(['-root_path=C:\\Users\\vinic\\Desktop\\CAPDesktop\\CapDesktop\\objetos\\santosdumont_transformador'])
+#args = parser.parse_args(['-root_path=C:\\CapDesktop\\objetos\\tr'])
 args = parser.parse_args()
 root_path     = args.root_path
 dobj          = args.dobj
@@ -71,7 +71,7 @@ for fo, folder_path in enumerate(folders_list):
     print("Lendo primeira nuvem e registrando ...", flush=True);
     acc = load_filter_point_cloud(clouds_list[0], voxel_size=voxel_size_fr, depth_max=dobj, T=loam_poses_original[0])
     acc = enclose_fov(acc, loam_poses_original[0], hor=fov_hor, ver=fov_ver)
-    acc = no_plane(acc)
+    # acc = no_plane(acc)
 
     # Para cada nuvem, performar
     sfm_poses_list = []
@@ -85,7 +85,7 @@ for fo, folder_path in enumerate(folders_list):
         # Transformar para o ultimo ajuste que fizemos por ICP
         src.transform(last_icp_adjust)
         # Retirar o chao por aproximacao de plano
-        src = no_plane(src)
+        # src = no_plane(src)
         # Aproximar as nuvens por ICP com ajuda manual se quiser
         transf, _ = pairwise_registration(src=src, tgt=acc, manual=manual_registration)
         # Transforma a nuvem atual e acumula evitando repeticao

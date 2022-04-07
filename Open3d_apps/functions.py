@@ -9,15 +9,18 @@ import json
 import colorsys
 #######################################################################################################
 def no_plane(cloud):
-    plane_model, inliers = cloud.segment_plane(distance_threshold=0.1, ransac_n=10, num_iterations=1000)
-    [a, b, c, d] = plane_model 
-    if -1.8 < d < -1.1 and abs(b) > abs(a) and abs(b) > abs(c):
-        cloud2 = cloud.select_by_index(inliers, invert=True)
-        ys = np.asarray(cloud2.points)[:, 1]
-        return cloud2.select_by_index(np.argwhere(ys < abs(d)-0.2))
+    if len(np.asarray(cloud.points)) > 100:
+        plane_model, inliers = cloud.segment_plane(distance_threshold=0.1, ransac_n=10, num_iterations=1000)
+        [a, b, c, d] = plane_model 
+        if -1.8 < d < -1.1 and abs(b) > abs(a) and abs(b) > abs(c):
+            cloud2 = cloud.select_by_index(inliers, invert=True)
+            ys = np.asarray(cloud2.points)[:, 1]
+            return cloud2.select_by_index(np.argwhere(ys < abs(d)-0.2))
+        else:
+            ys = np.asarray(cloud.points)[:, 1]
+            return cloud.select_by_index(np.argwhere(ys < 1))
     else:
-        ys = np.asarray(cloud.points)[:, 1]
-        return cloud.select_by_index(np.argwhere(ys < 1))
+        return cloud
 #######################################################################################################
 def select_best_region(src, tgt):
     dists = src.compute_point_cloud_distance(tgt)
