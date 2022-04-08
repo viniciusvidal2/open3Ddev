@@ -10,7 +10,7 @@ import argparse
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.5'
+version = '1.3.6'
 # Parametros recebidos pela linha de comando
 parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
                                  '. It processes the final object point cloud, from the data acquired '
