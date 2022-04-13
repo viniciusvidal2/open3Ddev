@@ -463,7 +463,7 @@ def read_sfm_file(name):
     lines = file.readlines()[2:]
 
     transforms = []
-    for n,line in enumerate(lines):
+    for n, line in enumerate(lines):
         l = line.split()
         T = np.array([[l[1], l[2], l[3], l[10]],
                       [l[4], l[5], l[6], l[11]],

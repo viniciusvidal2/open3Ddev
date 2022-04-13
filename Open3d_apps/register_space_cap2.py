@@ -11,7 +11,7 @@ import json
 from functions import *
 
 # Versao atual do executavel
-version = '1.3.6'
+version = '1.3.7'
 # Ler os parametros passados em linhas de comando
 parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
@@ -22,8 +22,11 @@ parser.add_argument('-root_path' , type=str  , required=True ,
 parser.add_argument('-resolution', type=float, required=False, 
                     default=0.04,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
-parser.add_argument('-reprocess_each_scan', type=str2bool, required=False, 
+parser.add_argument('-custom_scan_order', type=bool, required=False, 
                     default=False,
+                    help='If enabled, we will read a custom order to process the scans of this project. The order should be presented in the scan_order.txt, in the project root folder.')
+parser.add_argument('-reprocess_each_scan', type=str2bool, required=False, 
+                    default=True,
                     help='Flag to set if each scan raw data must be processed and optimized again. Not considered if it is the first runtime.')
 parser.add_argument('-reprocess_optimization', type=str2bool, required=False, 
                     default=True,
@@ -31,7 +34,7 @@ parser.add_argument('-reprocess_optimization', type=str2bool, required=False,
 parser.add_argument('-manual_registration', type=str2bool, required=False, 
                     default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-#args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\turbina'])
+#args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\seaca_2'])
 args = parser.parse_args()
 root_path     = args.root_path
 voxel_size    = args.resolution
@@ -46,11 +49,23 @@ print("CAP Space Point Cloud Estimator - v"+version, flush=True)
 # Parametros de calibracao da camera
 k = np.array([[978.34, -0.013, 654.28], [0.054, 958.48, 367.49], [0, 0, 1]])
 
-# Ler todas as pastas de scan no vetor de pastas, processar para cada pasta
-folders_list_all = [os.path.join(root_path, f) for f in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, f))]
-folders_list     = [fo for fo in folders_list_all if fo.split('\\')[-1][0:4] == 'scan']
-order = [int(fo.split('\\')[-1][4:]) for fo in folders_list]
-folders_list = [fo for _,fo in sorted(zip(order, folders_list))]
+# Se houver arquivo de ordem de scans, ler do arquivo
+folders_list = []
+if args.custom_scan_order:
+    if os.path.isfile(os.path.join(root_path, 'scan_order.txt')):
+        print('Lendo ordem customizada para processamento dos scans ...', flush=True)
+        file = open(os.path.join(root_path, 'scan_order.txt'), 'r')
+        folders_list = [(os.path.join(root_path, l.split('\n')[0])) for l in file.readlines()]
+        if len(folders_list) == 0:
+            print('NAO FOI ENCONTRADO NENHUM SCAN NA ORDEM CUSTOMIZADA. INSIRA UMA NOVA ORDEM OU DESABILITE ESSA OPCAO PARA TER O PROCESSAMENTO DEFAULT.', flush=True)
+    else:
+        print('O PROCESSAMENTO REQUER ORDEM CUSTOMIZADA, MAS O ARQUIVO COM ORDEM NAO SE ENCONTRA NA RAIZ DO PROJETO. POR FAVOR, CRIE O ARQUIVO OU DESABILITE A OPCAO PARA TER O PROCESSAMENTO EM ORDEM DEFAULT.', flush=True)
+else:
+    # Senao, ler todas as pastas de scan no vetor de pastas, processar para cada pasta
+    folders_list_all = [os.path.join(root_path, f) for f in os.listdir(root_path) if os.path.isdir(os.path.join(root_path, f))]
+    folders_list     = [fo for fo in folders_list_all if fo.split('\\')[-1][0:4] == 'scan']
+    order = [int(fo.split('\\')[-1][4:]) for fo in folders_list]
+    folders_list = [fo for _,fo in sorted(zip(order, folders_list))]
 
 for fo, folder_path in enumerate(folders_list):
     # Se nao existe arquivo, processar. Se ja existe, processar somente se desejado por parametro
@@ -67,72 +82,79 @@ for fo, folder_path in enumerate(folders_list):
         if not os.path.exists(os.path.join(folder_path, "cameras.sfm")):
             print(f'NAO FOI AQUISITADO CORRETAMENTE - PROBLEMA NO ARQUIVO DE IMAGENS PARA O SCAN {fo+1:d}. O SCAN NAO SERA PROCESSADO,' \
                 ' E PODERA CAUSAR DANOS A AQUISICAO FINAL', flush=True)
+
         else:
             raw_poses = read_sfm_file(os.path.join(folder_path, "cameras.sfm"))[:80]
             images_list = get_file_list(folder_path, ignored_files, extension=".png")
             images_list = [im for im in images_list if im.split('\\')[-1][0:6] == 'imagem']
-            if len(raw_poses) != len(images_list):
-                im_temp = cv2.imread(images_list[64])
+            # Conferir se a ultima imagem foi capturada, senao so essa nao ha problema repetir a outra
+            if images_list[-1].split('\\')[-1] != 'imagem_080.png':
+                im_temp = cv2.imread(images_list[-1])
                 cv2.imwrite(os.path.join(folder_path, 'imagem_080.png'), im_temp)
+            # Se ainda assim persistir o numero de imagens errado, nao processar o scan
+            if len(raw_poses) != len(images_list):
+                print(f'PROBLEMA COM A AQUISICAO DE IMAGENS PARA ESSE SCAN, ALGUMAS IMAGENS NAO FORAM CAPTURADAS CORRETAMENTE. POR FAVOR, REFACA O SCAN.', flush=True)
+            
+            ### PROCESSAMENTO AQUI
+            else:  
+                # Se o arquivo de nuvem existir correspondente a cada imagem, ler e processar (evita nuvens vazias observando o ceu, por exemplo)
+                # Ao completar um PPV, somar ali todas as nuvens
+                ppv_clouds = []
+                ppv_cloud = o3d.geometry.PointCloud()
+                ntilts = 8
+                for i in range(len(images_list)):
+                    cloud_path = os.path.join(folder_path, 'c_'+str(i+1).zfill(3)+'.ply')
+                    if os.path.exists(cloud_path):
+                        # Pre processar a nuvem
+                        print(f'Nuvem {i+1:d} de {len(images_list)} existe, processando ...', flush=True)
+                        cloud = load_filter_point_cloud(cloud_path, voxel_size, 50, raw_poses[i])                
+                        # Somar na vista do PPV
+                        ppv_cloud += cloud#remove_existing_points(cloud, ppv_cloud, voxel_size)
+                        # Mudar de PPV e salvar aquele se for o caso
+                    if i > 0 and (i+1) % ntilts == 0:
+                        print('Ajustando este PPV ...', flush=True)
+                        ppv_clouds.append(copy.deepcopy(ppv_cloud.voxel_down_sample(voxel_size)))
+                        ppv_cloud.clear()    
+                ppv_cloud.clear()
+
+                if debug:
+                    print("Visualizando resultado cru...", flush=True)
+                    o3d.visualization.draw_geometries(ppv_clouds, zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
     
-            # Se o arquivo de nuvem existir correspondente a cada imagem, ler e processar (evita nuvens vazias observando o ceu, por exemplo)
-            # Ao completar um PPV, somar ali todas as nuvens
-            ppv_clouds = []
-            ppv_cloud = o3d.geometry.PointCloud()
-            ntilts = 8
-            for i in range(len(images_list)):
-                cloud_path = os.path.join(folder_path, 'c_'+str(i+1).zfill(3)+'.ply')
-                if os.path.exists(cloud_path):
-                    # Pre processar a nuvem
-                    print(f'Nuvem {i+1:d} de {len(images_list)} existe, processando ...', flush=True)
-                    cloud = load_filter_point_cloud(cloud_path, voxel_size, 50, raw_poses[i])                
-                    # Somar na vista do PPV
-                    ppv_cloud += cloud#remove_existing_points(cloud, ppv_cloud, voxel_size)
-                    # Mudar de PPV e salvar aquele se for o caso
-                if i > 0 and (i+1) % ntilts == 0:
-                    print('Ajustando este PPV ...', flush=True)
-                    ppv_clouds.append(copy.deepcopy(ppv_cloud.voxel_down_sample(voxel_size)))
-                    ppv_cloud.clear()    
-            ppv_cloud.clear()
+                # Por lado a lado cada nuvem, aproximando por ICP
+                acc = copy.deepcopy(ppv_clouds[0])
+                transform_list = []
+                transform_list.append(np.identity(4, float))
+                for i, cloud in enumerate(ppv_clouds):
+                    if i > 0:
+                        print(f"Otimizando nuvem {i+1:d} de {len(ppv_clouds):d} PPVs ...", flush=True)
+                        target = acc.voxel_down_sample(voxel_size)
+                        source = cloud.voxel_down_sample(voxel_size)   
+                        transf = np.eye(4)   
+                        acc += remove_existing_points(cloud, acc, voxel_size)
+                        # Salvar transformacao de cada PPV em uma lista
+                        transform_list.append(transf)
+                ppv_clouds.clear()
+                # Filtrando possivel presenca de sol
+                #print("Filtrando ruidos ...")
+                #acc = filter_sun(acc)
 
-            if debug:
-                print("Visualizando resultado cru...", flush=True)
-                o3d.visualization.draw_geometries(ppv_clouds, zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
-    
-            # Por lado a lado cada nuvem, aproximando por ICP
-            acc = copy.deepcopy(ppv_clouds[0])
-            transform_list = []
-            transform_list.append(np.identity(4, float))
-            for i, cloud in enumerate(ppv_clouds):
-                if i > 0:
-                    print(f"Otimizando nuvem {i+1:d} de {len(ppv_clouds):d} PPVs ...", flush=True)
-                    target = acc.voxel_down_sample(voxel_size)
-                    source = cloud.voxel_down_sample(voxel_size)   
-                    transf = np.eye(4)   
-                    acc += remove_existing_points(cloud, acc, voxel_size)
-                    # Salvar transformacao de cada PPV em uma lista
-                    transform_list.append(transf)
-            ppv_clouds.clear()
-            # Filtrando possivel presenca de sol
-            #print("Filtrando ruidos ...")
-            #acc = filter_sun(acc)
+                print(f"Salvando resultado do SCAN {fo+1:d} ...", flush=True)
+                o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada_opt.ply"), filter_depth(acc.voxel_down_sample(voxel_size), 40))
 
-            print(f"Salvando resultado do SCAN {fo+1:d} ...", flush=True)
-            o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada_opt.ply"), filter_depth(acc.voxel_down_sample(voxel_size), 40))
+                if debug:
+                    print("Visualizando resultado otimizado ...", flush=True)
+                    o3d.visualization.draw_geometries([acc], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
 
-            if debug:
-                print("Visualizando resultado otimizado ...", flush=True)
-                o3d.visualization.draw_geometries([acc], zoom=0.3412, front=[0.4257, -0.2125, -0.8795], lookat=[2.6172,  2.0475,  1.5320], up=[-0.0694, -0.9768, 0.2024])
+                # Multiplicar as poses do arquivo pela otimizada aqui
+                new_poses = []
+                for i, p in enumerate(raw_poses):
+                    Tppv = np.dot( transform_list[int(i/ntilts)], np.linalg.inv(p) )
+                    new_poses.append(np.linalg.inv(Tppv))
 
-            # Multiplicar as poses do arquivo pela otimizada aqui
-            new_poses = []
-            for i, p in enumerate(raw_poses):
-                Tppv = np.dot( transform_list[int(i/ntilts)], np.linalg.inv(p) )
-                new_poses.append(np.linalg.inv(Tppv))
-
-            # Salvar o arquivo SFM
-            print("Salvando arquivo SFM otimizado ...", flush=True)
-            create_sfm_file(os.path.join(folder_path, "cameras_opt.sfm"), images_list, new_poses, k=k, only_write=True)
+                # Salvar o arquivo SFM
+                print("Salvando arquivo SFM otimizado ...", flush=True)
+                create_sfm_file(os.path.join(folder_path, "cameras_opt.sfm"), images_list, new_poses, k=k, only_write=True)
 
 #####################################
 # --------------------------------- #
