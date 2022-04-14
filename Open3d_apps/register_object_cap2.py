@@ -9,10 +9,8 @@ import argparse
 
 from functions import *
 
-# Versao atual do executavel
-version = '1.3.7'
 # Parametros recebidos pela linha de comando
-parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+version+
+parser = argparse.ArgumentParser(description='This is the CAP Object Point Cloud Estimator - v'+get_version()+
                                  '. It processes the final object point cloud, from the data acquired '
                                  'by the CAP scanner.', epilog='Fill the parameters accordingly.')
 parser.add_argument('-root_path'    , type=str  , required=True, default="C:\\Users\\vinic\\Desktop\\CAPDesktop\\objetos\\demonstracao_objeto",
@@ -38,7 +36,7 @@ fov_ver       = args.fov_ver
 intensity_icp = args.intensity_icp
 manual_registration = args.manual_registration
 
-print("CAP Object Point Cloud Estimator - v"+version, flush=True)
+print("CAP Object Point Cloud Estimator - v"+get_version(), flush=True)
 
 # Parametros gerais
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]

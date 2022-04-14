@@ -10,10 +10,8 @@ import json
 
 from functions import *
 
-# Versao atual do executavel
-version = '1.3.7'
 # Ler os parametros passados em linhas de comando
-parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+version+
+parser = argparse.ArgumentParser(description='This is the CAP Space Point Cloud Estimator - v'+get_version()+
                                  '. It processes the final space point cloud and blueprint, from the data acquired '
                                  'by the CAP scanner.', epilog='Fill the parameters accordingly.')
 parser.add_argument('-root_path' , type=str  , required=True , 
@@ -23,10 +21,10 @@ parser.add_argument('-resolution', type=float, required=False,
                     default=0.04,
                     help='Point Cloud final resolution, in meters. This parameter gives a balance between final resolution and processing time.')
 parser.add_argument('-custom_scan_order', type=bool, required=False, 
-                    default=False,
+                    default=True,
                     help='If enabled, we will read a custom order to process the scans of this project. The order should be presented in the scan_order.txt, in the project root folder.')
 parser.add_argument('-reprocess_each_scan', type=str2bool, required=False, 
-                    default=True,
+                    default=False,
                     help='Flag to set if each scan raw data must be processed and optimized again. Not considered if it is the first runtime.')
 parser.add_argument('-reprocess_optimization', type=str2bool, required=False, 
                     default=True,
@@ -34,8 +32,8 @@ parser.add_argument('-reprocess_optimization', type=str2bool, required=False,
 parser.add_argument('-manual_registration', type=str2bool, required=False, 
                     default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-#args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\seaca_2'])
-args = parser.parse_args()
+args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\abobora'])
+#args = parser.parse_args()
 root_path     = args.root_path
 voxel_size    = args.resolution
 reprocess     = args.reprocess_each_scan
@@ -44,7 +42,7 @@ manual_registration = args.manual_registration
 ignored_files = ["acumulada", "acumulada_opt", "mesh", "panoramica", "planta_baixa"]
 debug = False
 
-print("CAP Space Point Cloud Estimator - v"+version, flush=True)
+print("CAP Space Point Cloud Estimator - v"+get_version(), flush=True)
 
 # Parametros de calibracao da camera
 k = np.array([[978.34, -0.013, 654.28], [0.054, 958.48, 367.49], [0, 0, 1]])
@@ -67,7 +65,7 @@ else:
     order = [int(fo.split('\\')[-1][4:]) for fo in folders_list]
     folders_list = [fo for _,fo in sorted(zip(order, folders_list))]
 
-for fo, folder_path in enumerate(folders_list):
+for folder_path in folders_list:
     # Se nao existe arquivo, processar. Se ja existe, processar somente se desejado por parametro
     do_process = False
     #filter_sun(o3d.io.read_point_cloud(os.path.join(folder_path, "acumulada_opt.ply")))
@@ -78,7 +76,8 @@ for fo, folder_path in enumerate(folders_list):
 
     if do_process:
         # Ler arquivo SFM, se houver
-        print(f"Lendo arquivo SFM do SCAN {fo+1:d} ...", flush=True)
+        ff = int(folder_path.split('\\')[-1][4:])
+        print(f"Lendo arquivo SFM do SCAN {ff:d} ...", flush=True)
         if not os.path.exists(os.path.join(folder_path, "cameras.sfm")):
             print(f'NAO FOI AQUISITADO CORRETAMENTE - PROBLEMA NO ARQUIVO DE IMAGENS PARA O SCAN {fo+1:d}. O SCAN NAO SERA PROCESSADO,' \
                 ' E PODERA CAUSAR DANOS A AQUISICAO FINAL', flush=True)
@@ -139,7 +138,7 @@ for fo, folder_path in enumerate(folders_list):
                 #print("Filtrando ruidos ...")
                 #acc = filter_sun(acc)
 
-                print(f"Salvando resultado do SCAN {fo+1:d} ...", flush=True)
+                print(f"Salvando resultado do SCAN {ff:d} ...", flush=True)
                 o3d.io.write_point_cloud(os.path.join(folder_path, "acumulada_opt.ply"), filter_depth(acc.voxel_down_sample(voxel_size), 40))
 
                 if debug:

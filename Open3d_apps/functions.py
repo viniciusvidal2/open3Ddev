@@ -7,6 +7,13 @@ import copy
 import cv2
 import json
 import colorsys
+
+# CODE VERSION CONTROL FOR BOTH OBJECT AND SPACE
+version = '1.3.8'
+
+#######################################################################################################
+def get_version():
+    return version
 #######################################################################################################
 def no_plane(cloud):
     if len(np.asarray(cloud.points)) > 100:
