@@ -32,8 +32,8 @@ parser.add_argument('-reprocess_optimization', type=str2bool, required=False,
 parser.add_argument('-manual_registration', type=str2bool, required=False, 
                     default=True,
                     help='Flag to set if each scan registration will be manually aided by the user. Recommended in large outdoor environments.')
-args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\abobora'])
-#args = parser.parse_args()
+#args = parser.parse_args(['-root_path=C:\\capdesktop\\ambientes\\abobora'])
+args = parser.parse_args()
 root_path     = args.root_path
 voxel_size    = args.resolution
 reprocess     = args.reprocess_each_scan
